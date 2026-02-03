@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/pekum/anaconda3/python.exe:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

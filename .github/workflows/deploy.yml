@@ -1,0 +1,72 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 手動実行も可能
+
+env:
+  DEPLOY_PATH: /home/azureuser/stock_agent
+  VM_HOST: 20.222.241.22
+  VM_USER: azureuser
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ env.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via rsync
+        run: |
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '*.pem' \
+            --exclude 'db/stock_agent.db' \
+            --exclude 'logs/*' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ${{ env.VM_USER }}@${{ env.VM_HOST }}:${{ env.DEPLOY_PATH }}/
+
+      - name: Setup on remote server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ env.VM_USER }}@${{ env.VM_HOST }} << 'EOF'
+          cd ${{ env.DEPLOY_PATH }}
+
+          # Python仮想環境がなければ作成
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
+
+          # 依存パッケージインストール
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+          # DBディレクトリ作成
+          mkdir -p db logs
+
+          # DB初期化（初回のみ）
+          if [ ! -f "db/stock_agent.db" ]; then
+            sqlite3 db/stock_agent.db < db/schema.sql
+            echo "Database initialized"
+          fi
+
+          echo "Deployment completed successfully!"
+          EOF
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
