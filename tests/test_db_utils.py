@@ -8,7 +8,7 @@ from pathlib import Path
 # scriptsディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db_utils import get_connection, init_database, get_all_tickers
+from db_utils import get_connection, init_database, get_all_tickers, is_valid_ticker_code
 
 
 class TestDatabaseConnection:
@@ -65,3 +65,69 @@ class TestDataIntegrity:
             """)
             orphan_count = cursor.fetchone()[0]
             assert orphan_count == 0, f"孤立した決算データ: {orphan_count}件"
+
+
+class TestTickerValidation:
+    """証券コード検証のテスト"""
+
+    def test_valid_4digit_numeric(self):
+        """4桁数字コードは有効"""
+        assert is_valid_ticker_code("7203") is True
+        assert is_valid_ticker_code("6758") is True
+        assert is_valid_ticker_code("1234") is True
+
+    def test_valid_5digit_numeric(self):
+        """5桁数字コードは有効"""
+        assert is_valid_ticker_code("12345") is True
+        assert is_valid_ticker_code("98765") is True
+
+    def test_valid_alphanumeric(self):
+        """4桁数字+英字1文字は有効"""
+        assert is_valid_ticker_code("285A") is True
+        assert is_valid_ticker_code("200A") is True
+        assert is_valid_ticker_code("346A") is True
+        assert is_valid_ticker_code("123Z") is True
+        assert is_valid_ticker_code("9999B") is True
+
+    def test_valid_lowercase_alpha(self):
+        """4桁数字+小文字英字も有効"""
+        assert is_valid_ticker_code("285a") is True
+        assert is_valid_ticker_code("200a") is True
+
+    def test_invalid_too_short(self):
+        """3桁以下は無効"""
+        assert is_valid_ticker_code("123") is False
+        assert is_valid_ticker_code("12") is False
+        assert is_valid_ticker_code("1") is False
+
+    def test_invalid_too_long(self):
+        """6桁以上は無効"""
+        assert is_valid_ticker_code("123456") is False
+        assert is_valid_ticker_code("12345A") is False  # 5桁数字+英字
+
+    def test_invalid_pure_alpha(self):
+        """英字のみは無効"""
+        assert is_valid_ticker_code("ABCD") is False
+        assert is_valid_ticker_code("ABCDE") is False
+
+    def test_invalid_mixed_position(self):
+        """英字が途中に入っているのは無効"""
+        assert is_valid_ticker_code("12A34") is False
+        assert is_valid_ticker_code("A1234") is False
+        assert is_valid_ticker_code("1A234") is False
+
+    def test_invalid_multiple_alpha(self):
+        """英字が2文字以上は無効"""
+        assert is_valid_ticker_code("123AB") is False
+        assert is_valid_ticker_code("12ABC") is False
+
+    def test_empty_and_none(self):
+        """空文字・Noneは無効"""
+        assert is_valid_ticker_code("") is False
+        assert is_valid_ticker_code(None) is False
+
+    def test_whitespace_trimmed(self):
+        """空白は除去される"""
+        assert is_valid_ticker_code(" 7203 ") is True
+        assert is_valid_ticker_code(" 285A ") is True
+        assert is_valid_ticker_code("   ") is False

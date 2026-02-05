@@ -54,3 +54,5 @@ db/*.backup_*
 
 # Temporary CSV files
 missing_edinet.csv
+venv/
+venv/

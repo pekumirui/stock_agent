@@ -298,6 +298,56 @@ def get_financials_qoq(ticker_code: str = None) -> list:
         return [dict(row) for row in cursor.fetchall()]
 
 
+def is_valid_ticker_code(ticker_code: str) -> bool:
+    """
+    証券コードの妥当性を検証
+
+    有効なパターン:
+    - 4桁数字: 7203, 6758
+    - 5桁数字: 12345
+    - 4桁数字+英字1文字: 285A, 200A, 346A
+
+    Args:
+        ticker_code: 証券コード
+
+    Returns:
+        bool: 有効な場合 True
+
+    Examples:
+        >>> is_valid_ticker_code("7203")
+        True
+        >>> is_valid_ticker_code("285A")
+        True
+        >>> is_valid_ticker_code("ABC")
+        False
+        >>> is_valid_ticker_code("12345A")
+        False
+    """
+    if not ticker_code:
+        return False
+
+    ticker_clean = ticker_code.strip()
+    length = len(ticker_clean)
+
+    # 4-5桁の範囲チェック
+    if not (4 <= length <= 5):
+        return False
+
+    # パターン1: 4-5桁の数字のみ
+    if ticker_clean.isdigit():
+        return True
+
+    # パターン2: 4文字（3桁数字 + 1文字英字）例: 285A
+    if length == 4:
+        return ticker_clean[:3].isdigit() and ticker_clean[3].isalpha()
+
+    # パターン3: 5文字（4桁数字 + 1文字英字）例: 1234A
+    if length == 5:
+        return ticker_clean[:4].isdigit() and ticker_clean[4].isalpha()
+
+    return False
+
+
 if __name__ == "__main__":
     # 直接実行時はDB初期化
     init_database()

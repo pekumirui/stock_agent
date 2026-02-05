@@ -61,6 +61,31 @@ python3 scripts/run_daily_batch.py
 0 18 * * 1-5 cd /path/to/stock_agent && python3 scripts/run_daily_batch.py >> logs/batch.log 2>&1
 ```
 
+## サポートする証券コード
+
+本システムは以下の形式の証券コードに対応しています：
+
+| パターン | 例 | 説明 |
+|---------|---|------|
+| **4桁数字** | 7203, 6758 | 一般的な株式（トヨタ、ソニー等） |
+| **5桁数字** | 12345 | 特定の銘柄 |
+| **4桁数字+英字** | 285A, 200A, 346A | キオクシア、NEXT FUNDS等 |
+
+### 実行例
+
+```bash
+# 数字のみ
+python3 scripts/fetch_prices.py --ticker 7203
+
+# 英字付き
+python3 scripts/fetch_prices.py --ticker 285A
+
+# 混在
+python3 scripts/fetch_prices.py --ticker 7203,285A,200A,6758
+```
+
+**バリデーション**: すべての証券コードは `db_utils.is_valid_ticker_code()` で検証されます。
+
 ## 各スクリプトの使い方
 
 ### 株価取得 (fetch_prices.py)

@@ -17,7 +17,8 @@ from typing import Optional, Dict, Any
 from db_utils import (
     get_connection,
     log_batch_start,
-    log_batch_end
+    log_batch_end,
+    is_valid_ticker_code
 )
 
 
@@ -140,9 +141,9 @@ def parse_sec_code(sec_code: str) -> Optional[str]:
     if not sec_code:
         return None
 
-    # 4-5桁の数字かチェック
+    # 4-5桁の数字、または4桁数字+英字1文字をチェック
     sec_code_clean = sec_code.strip()
-    if 4 <= len(sec_code_clean) <= 5 and sec_code_clean.isdigit():
+    if is_valid_ticker_code(sec_code_clean):
         return sec_code_clean
 
     return None

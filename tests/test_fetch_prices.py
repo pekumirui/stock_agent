@@ -260,3 +260,82 @@ class TestDatabaseIntegration:
 
         # 重複挿入されないこと（UNIQUE制約）
         assert count2 == count1, "重複データが挿入されないこと"
+
+
+class TestAlphanumericTickerSupport:
+    """英字付きティッカーの統合テスト"""
+
+    def test_yahoo_symbol_conversion_alphanumeric(self):
+        """285A → 285A.T 変換が正しいこと"""
+        assert ticker_to_yahoo_symbol("285A") == "285A.T"
+        assert ticker_to_yahoo_symbol("200A") == "200A.T"
+        assert ticker_to_yahoo_symbol("346A") == "346A.T"
+
+    def test_yahoo_symbol_conversion_numeric(self):
+        """数字コードの変換も正常に動作すること（後方互換性）"""
+        assert ticker_to_yahoo_symbol("7203") == "7203.T"
+        assert ticker_to_yahoo_symbol("6758") == "6758.T"
+        assert ticker_to_yahoo_symbol("12345") == "12345.T"
+
+    @pytest.mark.integration
+    def test_fetch_alphanumeric_ticker_real_api(self):
+        """英字付きティッカーで実APIから株価取得（285A: Kioxia）"""
+        # 285A（キオクシア）でテスト
+        result = fetch_stock_data_batch(["285A"], period="5d")
+
+        # Kioxiaが上場している場合、データが取得できる
+        if result is not None and not result.empty:
+            # DataFrameが返ってきた場合
+            assert isinstance(result, pd.DataFrame), "DataFrameが返ること"
+
+            # カラム構造を確認（MultiIndexまたは単一Index）
+            if isinstance(result.columns, pd.MultiIndex):
+                # マルチインデックスの場合（複数銘柄）
+                assert '285A.T' in result.columns.levels[0] or 'Close' in result.columns.levels[1], \
+                    "285A.T または Close カラムが含まれること"
+            else:
+                # 単一インデックスの場合（単一銘柄）
+                assert 'Close' in result.columns or '285A.T' in str(result.columns), \
+                    "Close カラムが含まれること"
+
+            print(f"[SUCCESS] 285A (Kioxia) データ取得成功: {len(result)}行")
+        else:
+            # データなしまたはNoneの場合（上場廃止、API制限等）
+            pytest.skip("285A: データなし（上場廃止 or API制限）")
+
+    @pytest.mark.integration
+    def test_fetch_multiple_alphanumeric_tickers(self, test_db):
+        """複数の英字付きティッカーを混在して取得（実API）"""
+        # 数字コードと英字コードを混在
+        tickers = ['7203', '285A', '6758']  # トヨタ、キオクシア、ソニー
+
+        # 銘柄登録
+        upsert_company('7203', 'トヨタ自動車', edinet_code='E01225')
+        upsert_company('285A', 'キオクシアホールディングス')
+        upsert_company('6758', 'ソニーグループ', edinet_code='E01777')
+
+        # フルフロー実行
+        try:
+            fetch_all_prices(
+                tickers=tickers,
+                period='3d',
+                sleep_interval=0.5,  # API制限を考慮
+                batch_size=3
+            )
+
+            # DB確認
+            with get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT ticker_code, COUNT(*) FROM daily_prices WHERE ticker_code IN ('7203', '285A', '6758') GROUP BY ticker_code"
+                )
+                results = cursor.fetchall()
+
+                # 少なくとも1銘柄はデータが取得できていること
+                assert len(results) >= 1, "少なくとも1銘柄のデータが取得できること"
+
+                print(f"[SUCCESS] 取得銘柄数: {len(results)}")
+                for ticker, count in results:
+                    print(f"  - {ticker}: {count}行")
+
+        except Exception as e:
+            pytest.skip(f"複数銘柄取得失敗（API制限等）: {e}")

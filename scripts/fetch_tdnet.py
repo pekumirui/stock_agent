@@ -34,7 +34,8 @@ from fetch_financials import (
 
 from db_utils import (
     insert_financial,
-    log_batch_start, log_batch_end
+    log_batch_start, log_batch_end,
+    is_valid_ticker_code
 )
 
 
@@ -271,7 +272,19 @@ class TdnetClient:
         code_td = row.find('td', {'class': 'kjCode'})
         if code_td is None:
             return None
-        ticker_code = code_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")[:-1]  # 末尾の1文字削除（チェックディジット等）
+
+        # TDnetは証券コードに末尾チェックデジットを付加 (例: 72030, 285A0)
+        code_text = code_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")
+        if len(code_text) >= 5:
+            # 最後の1文字を除去してバリデーション
+            potential_ticker = code_text[:-1]
+            if is_valid_ticker_code(potential_ticker):
+                ticker_code = potential_ticker
+            else:
+                # フォールバック: 従来ロジック
+                ticker_code = code_text[:-1]
+        else:
+            ticker_code = code_text
 
         # 会社名
         name_td = row.find('td', {'class': 'kjName'})

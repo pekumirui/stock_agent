@@ -5,7 +5,7 @@
 -- 1. 銘柄マスタ
 -- ============================================
 CREATE TABLE IF NOT EXISTS companies (
-    ticker_code TEXT PRIMARY KEY,           -- 証券コード（4-5桁）
+    ticker_code TEXT PRIMARY KEY,           -- 証券コード（4-5桁の数字、または4桁数字+英字: 7203, 285A）
     company_name TEXT NOT NULL,             -- 会社名
     company_name_en TEXT,                   -- 会社名（英語）
     market_segment TEXT,                    -- 市場区分（プライム/スタンダード/グロース）

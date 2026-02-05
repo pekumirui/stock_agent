@@ -10,7 +10,7 @@ companiesテーブルに登録する
 import requests
 import pandas as pd
 import io
-from db_utils import get_connection, init_database, upsert_company
+from db_utils import get_connection, init_database, upsert_company, is_valid_ticker_code
 
 
 # JPXの上場銘柄一覧CSVのURL
@@ -72,7 +72,7 @@ def parse_jpx_data(df: pd.DataFrame) -> list:
                     sector_17 = str(value).strip() if pd.notna(value) else None
             
             # 有効なデータのみ追加
-            if ticker_code and company_name and 4 <= len(ticker_code) <= 5 and ticker_code.isdigit():
+            if ticker_code and company_name and is_valid_ticker_code(ticker_code):
                 companies.append({
                     'ticker_code': ticker_code,
                     'company_name': company_name,
