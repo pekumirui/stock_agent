@@ -56,13 +56,11 @@ jobs:
           pip install -r requirements.txt
 
           # DBディレクトリ作成
-          mkdir -p db logs
+          mkdir -p db logs db/migrations
 
-          # DB初期化（初回のみ）
-          if [ ! -f "db/stock_agent.db" ]; then
-            sqlite3 db/stock_agent.db < db/schema.sql
-            echo "Database initialized"
-          fi
+          # マイグレーション適用（新規・既存環境どちらも対応）
+          python scripts/migrate.py apply
+          echo "Database migrations applied"
 
           echo "Deployment completed successfully!"
           EOF

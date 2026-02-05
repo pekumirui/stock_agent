@@ -26,14 +26,64 @@ def get_connection():
 
 
 def init_database():
-    """データベースを初期化（スキーマ作成）"""
+    """データベースを初期化（マイグレーション適用）"""
     # DBディレクトリがなければ作成
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
-    with get_connection() as conn:
-        with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
-            conn.executescript(f.read())
-        conn.commit()
+
+    # マイグレーションディレクトリ
+    MIGRATIONS_DIR = BASE_DIR / 'db' / 'migrations'
+
+    # マイグレーション適用
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # マイグレーション履歴テーブル作成
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS _yoyo_migration (
+            migration_hash TEXT,
+            migration_id TEXT NOT NULL PRIMARY KEY,
+            applied_at_utc TIMESTAMP
+        )
+    """)
+
+    # 既存の適用済みマイグレーションを取得
+    cursor.execute("SELECT migration_id FROM _yoyo_migration")
+    applied_ids = {row[0] for row in cursor.fetchall()}
+
+    # マイグレーションファイルを順番に適用
+    migration_files = sorted(MIGRATIONS_DIR.glob('V*.sql'))
+    migration_files = [f for f in migration_files if not f.stem.endswith('.rollback')]
+
+    applied_count = 0
+    for migration_file in migration_files:
+        migration_id = migration_file.stem
+
+        if migration_id in applied_ids:
+            continue  # 既に適用済み
+
+        # マイグレーションSQL実行
+        with open(migration_file, 'r', encoding='utf-8') as f:
+            sql = f.read()
+            conn.executescript(sql)
+
+        # マイグレーション履歴に記録
+        applied_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("""
+            INSERT INTO _yoyo_migration (migration_hash, migration_id, applied_at_utc)
+            VALUES ('', ?, ?)
+        """, (migration_id, applied_at))
+
+        applied_count += 1
+        print(f"  マイグレーション適用: {migration_id}")
+
+    conn.commit()
+    conn.close()
+
+    if applied_count > 0:
+        print(f"マイグレーション適用: {applied_count}件")
+    else:
+        print("マイグレーション: すべて適用済み")
+
     print(f"データベースを初期化しました: {DB_PATH}")
 
 
@@ -153,14 +203,38 @@ def insert_stock_split(ticker_code: str, split_date: str, ratio_from: float, rat
 
 
 def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **kwargs):
-    """決算データを挿入（重複時は更新）"""
+    """
+    決算データを挿入（データソース優先度を考慮）
+
+    上書きルール:
+    - source='EDINET': 常に保存（正式版優先）
+    - source='TDnet': 既存が EDINET の場合はスキップ
+
+    Returns:
+        bool: 保存した場合 True、スキップした場合 False
+    """
+    source = kwargs.get('source')
+
     with get_connection() as conn:
+        # 既存データの source を確認
+        cursor = conn.execute("""
+            SELECT source FROM financials
+            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+        """, (ticker_code, fiscal_year, fiscal_quarter))
+        existing = cursor.fetchone()
+
+        # スキップ判定: TDnet データで既存が EDINET
+        if existing and existing['source'] == 'EDINET' and source == 'TDnet':
+            print(f"    [SKIP] EDINETデータ存在のためスキップ: {ticker_code} {fiscal_year} {fiscal_quarter}")
+            return False
+
+        # 通常の INSERT/UPDATE 処理
         conn.execute("""
-            INSERT INTO financials 
+            INSERT INTO financials
             (ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date, announcement_date,
              revenue, gross_profit, operating_income, ordinary_income, net_income, eps,
-             currency, unit, source, edinet_doc_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             currency, unit, source, edinet_doc_id, pdf_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter) DO UPDATE SET
                 fiscal_end_date = excluded.fiscal_end_date,
                 announcement_date = excluded.announcement_date,
@@ -170,6 +244,9 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
                 ordinary_income = excluded.ordinary_income,
                 net_income = excluded.net_income,
                 eps = excluded.eps,
+                source = excluded.source,
+                edinet_doc_id = COALESCE(excluded.edinet_doc_id, edinet_doc_id),
+                pdf_path = COALESCE(excluded.pdf_path, pdf_path),
                 updated_at = datetime('now', 'localtime')
         """, (
             ticker_code, fiscal_year, fiscal_quarter,
@@ -183,10 +260,42 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             kwargs.get('eps'),
             kwargs.get('currency', 'JPY'),
             kwargs.get('unit', 'million'),
-            kwargs.get('source'),
-            kwargs.get('edinet_doc_id')
+            source,
+            kwargs.get('edinet_doc_id'),
+            kwargs.get('pdf_path')
         ))
         conn.commit()
+        return True
+
+
+def get_financials_yoy(ticker_code: str = None) -> list:
+    """YoY比較付き決算データを取得"""
+    with get_connection() as conn:
+        if ticker_code:
+            cursor = conn.execute(
+                "SELECT * FROM v_financials_yoy WHERE ticker_code = ? ORDER BY fiscal_year DESC, fiscal_quarter",
+                (ticker_code,)
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM v_financials_yoy ORDER BY ticker_code, fiscal_year DESC, fiscal_quarter"
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_financials_qoq(ticker_code: str = None) -> list:
+    """QoQ比較付き決算データを取得"""
+    with get_connection() as conn:
+        if ticker_code:
+            cursor = conn.execute(
+                "SELECT * FROM v_financials_qoq WHERE ticker_code = ? ORDER BY fiscal_year DESC, fiscal_quarter",
+                (ticker_code,)
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM v_financials_qoq ORDER BY ticker_code, fiscal_year DESC, fiscal_quarter"
+            )
+        return [dict(row) for row in cursor.fetchall()]
 
 
 if __name__ == "__main__":
