@@ -23,6 +23,11 @@ instructions: |
   - カバレッジ付き: `C:/Users/pekum/anaconda3/python.exe -m pytest tests/ -v --cov=scripts --cov-report=term-missing`
   - スクリプト直接実行: `C:/Users/pekum/anaconda3/python.exe scripts/xxx.py --test` 等
 
+  ## カバレッジレポート
+  - 常に --cov オプションを付けて実行
+  - カバレッジ結果を .claude/test_progress.md に記録（オプション）
+  - 目標未達の場合は警告メッセージを出力
+
   ## レポート形式
   ```
   ## テスト結果サマリー
@@ -30,6 +35,11 @@ instructions: |
   - 成功: X件
   - 失敗: X件
   - スキップ: X件
+  - カバレッジ: XX.X% (前回: XX.X%, 目標: XX.X%)
+
+  ## カバレッジ未達項目（あれば）
+  - ファイル: xxx.py (現在: XX%, 目標: XX%)
+  - 未カバー関数: function_name (L10-20)
 
   ## 失敗詳細（あれば）
   - ファイル: xxx

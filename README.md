@@ -27,24 +27,24 @@ stock_agent/
 
 ```bash
 pip install yfinance pandas requests openpyxl　xlrd
-python -m pip install yfinance pandas requests openpyxl　xlrd
+python3 -m pip install yfinance pandas requests openpyxl　xlrd
 ```
 
 ### 2. 初回セットアップ（銘柄マスタ + サンプルデータ）
 
 ```bash
 # サンプル銘柄（約30社）でテスト
-python scripts/run_daily_batch.py --init --sample
+python3 scripts/run_daily_batch.py --init --sample
 
 # または全銘柄（JPXから約4000社取得）
-python scripts/run_daily_batch.py --init
+python3 scripts/run_daily_batch.py --init
 ```
 
 ### 3. 全履歴取得（初回のみ）
 
 ```bash
 # 株価の全履歴を取得（時間がかかります）
-python scripts/fetch_prices.py --full
+python3 scripts/fetch_prices.py --full
 ```
 
 ## 日次運用
@@ -52,13 +52,13 @@ python scripts/fetch_prices.py --full
 ### 手動実行
 
 ```bash
-python scripts/run_daily_batch.py
+python3 scripts/run_daily_batch.py
 ```
 
 ### cron設定（毎日18:00に実行）
 
 ```bash
-0 18 * * 1-5 cd /path/to/stock_agent && python scripts/run_daily_batch.py >> logs/batch.log 2>&1
+0 18 * * 1-5 cd /path/to/stock_agent && python3 scripts/run_daily_batch.py >> logs/batch.log 2>&1
 ```
 
 ## 各スクリプトの使い方
@@ -67,43 +67,96 @@ python scripts/run_daily_batch.py
 
 ```bash
 # 全銘柄の最新データ
-python scripts/fetch_prices.py
+python3 scripts/fetch_prices.py
 
 # 特定銘柄のみ
-python scripts/fetch_prices.py --ticker 7203,6758,9984
+python3 scripts/fetch_prices.py --ticker 7203,6758,9984
 
 # 過去30日分
-python scripts/fetch_prices.py --days 30
+python3 scripts/fetch_prices.py --days 30
 
 # 全履歴
-python scripts/fetch_prices.py --full
+python3 scripts/fetch_prices.py --full
 ```
 
 ### 決算取得 (fetch_financials.py)
 
 ```bash
 # 直近7日分
-python scripts/fetch_financials.py
+python3 scripts/fetch_financials.py
 
 # 過去30日分
-python scripts/fetch_financials.py --days 30
+python3 scripts/fetch_financials.py --days 30
 
 # 特定銘柄のみ
-python scripts/fetch_financials.py --ticker 7203
+python3 scripts/fetch_financials.py --ticker 7203
 ```
+
+### TDnet決算短信取得 (fetch_tdnet.py)
+
+最新の決算短信をTDnetから取得します（速報版）。
+
+```bash
+# 本日分のTDnet決算短信を取得
+python3 scripts/fetch_tdnet.py
+
+# 過去7日分を取得
+python3 scripts/fetch_tdnet.py --days 7
+
+# 特定銘柄のみ
+python3 scripts/fetch_tdnet.py --ticker 7203,6758
+
+# 日付範囲指定
+python3 scripts/fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05
+```
+
+**データソース戦略**:
+- **TDnet**: 決算短信（速報版）、当日リアルタイム取得
+- **EDINET**: 有価証券報告書（正式版）、数週間～数ヶ月遅れ
+- **上書きルール**: EDINETがTDnetを上書き（正式版優先）
 
 ### 銘柄マスタ (init_companies.py)
 
 ```bash
 # JPXから全銘柄取得
-python scripts/init_companies.py
+python3 scripts/init_companies.py
 
 # サンプル銘柄のみ
-python scripts/init_companies.py --sample
+python3 scripts/init_companies.py --sample
 
 # CSVから読み込み
-python scripts/init_companies.py --csv path/to/companies.csv
+python3 scripts/init_companies.py --csv path/to/companies.csv
 ```
+
+### マイグレーション管理 (migrate.py)
+
+データベーススキーマの変更履歴を管理します。yoyo-migrationsを使用。
+
+```bash
+# マイグレーション状態確認
+python3 scripts/migrate.py status
+
+# マイグレーション適用（新規・既存環境どちらも対応）
+python3 scripts/migrate.py apply
+
+# 新規マイグレーション作成
+python3 scripts/migrate.py new "add_news_table"
+# → db/migrations/V002__add_news_table.sql
+# → db/migrations/V002__add_news_table.rollback.sql
+
+# ロールバック（開発環境のみ推奨）
+python3 scripts/migrate.py rollback
+```
+
+**スキーマ変更フロー**:
+1. `migrate.py new "説明"` で新規マイグレーション作成
+2. 生成されたSQLファイルを編集
+3. `migrate.py apply` でローカル適用・テスト
+4. Git commit & push で本番環境に自動適用（GitHub Actions）
+
+**既存環境への適用**:
+- 初回のみ `migrate.py mark-baseline` でベースラインマークを適用
+- その後は `migrate.py apply` で未適用マイグレーションを自動検出・適用
 
 ## データベーススキーマ
 
@@ -116,6 +169,8 @@ python scripts/init_companies.py --csv path/to/companies.csv
 | stock_splits | 株式分割情報 |
 | financials | 決算データ |
 | batch_logs | バッチ実行ログ |
+| document_analyses | 決算資料分析（将来のAI分析用） |
+| _yoyo_migration | マイグレーション履歴管理テーブル |
 
 ### 主なビュー
 
@@ -206,7 +261,9 @@ sudo apt install python3 python3-venv python3-pip sqlite3
 - ソースコードをrsyncで転送
 - Python仮想環境を作成（初回のみ）
 - 依存パッケージをインストール
-- DBを初期化（初回のみ）
+- **マイグレーション自動適用**（新規・既存環境どちらも対応）
+  - 未適用のマイグレーションを自動検出・適用
+  - スキーマ変更をgit pushだけで本番反映可能
 
 ### 除外されるファイル
 

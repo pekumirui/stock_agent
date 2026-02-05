@@ -5,7 +5,7 @@
 -- 1. 銘柄マスタ
 -- ============================================
 CREATE TABLE IF NOT EXISTS companies (
-    ticker_code TEXT PRIMARY KEY,           -- 証券コード（4桁）
+    ticker_code TEXT PRIMARY KEY,           -- 証券コード（4-5桁）
     company_name TEXT NOT NULL,             -- 会社名
     company_name_en TEXT,                   -- 会社名（英語）
     market_segment TEXT,                    -- 市場区分（プライム/スタンダード/グロース）
@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS financials (
     unit TEXT DEFAULT 'million',            -- 単位（million=百万円）
     source TEXT,                            -- データソース（EDINET等）
     edinet_doc_id TEXT,                     -- EDINET書類ID
+    pdf_path TEXT,                          -- 決算短信PDFの保存パス
     
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -114,6 +115,129 @@ CREATE TABLE IF NOT EXISTS batch_logs (
 
 CREATE INDEX IF NOT EXISTS idx_batch_name ON batch_logs(batch_name);
 CREATE INDEX IF NOT EXISTS idx_batch_date ON batch_logs(execution_date);
+
+-- ============================================
+-- 6. 決算資料分析テーブル（将来のAI分析用）
+-- ============================================
+CREATE TABLE IF NOT EXISTS document_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker_code TEXT NOT NULL,              -- 証券コード
+    edinet_doc_id TEXT,                     -- EDINET書類ID
+    doc_type TEXT,                          -- 書類種別（'tanshin', 'yuho' 等）
+    pdf_path TEXT,                          -- PDFファイルパス
+    analysis_type TEXT,                     -- 分析種別（'wording_change', 'sentiment' 等）
+    analysis_result TEXT,                   -- 分析結果（JSON形式）
+    model_name TEXT,                        -- 使用したAIモデル名
+    analyzed_at TEXT,                       -- 分析実行日時
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (ticker_code) REFERENCES companies(ticker_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_analysis_ticker ON document_analyses(ticker_code);
+CREATE INDEX IF NOT EXISTS idx_doc_analysis_doc ON document_analyses(edinet_doc_id);
+
+-- ============================================
+-- ビュー: 前年同期比較（YoY）
+-- ============================================
+CREATE VIEW IF NOT EXISTS v_financials_yoy AS
+SELECT
+    f.id,
+    f.ticker_code,
+    c.company_name,
+    f.fiscal_year,
+    f.fiscal_quarter,
+    f.fiscal_end_date,
+    f.announcement_date,
+    -- 当期の値
+    f.revenue,
+    f.gross_profit,
+    f.operating_income,
+    f.ordinary_income,
+    f.net_income,
+    f.eps,
+    -- 前年同期の値
+    LAG(f.revenue, 1) OVER w AS revenue_prev_year,
+    LAG(f.gross_profit, 1) OVER w AS gross_profit_prev_year,
+    LAG(f.operating_income, 1) OVER w AS operating_income_prev_year,
+    LAG(f.ordinary_income, 1) OVER w AS ordinary_income_prev_year,
+    LAG(f.net_income, 1) OVER w AS net_income_prev_year,
+    LAG(f.eps, 1) OVER w AS eps_prev_year,
+    -- YoY変化額
+    f.revenue - LAG(f.revenue, 1) OVER w AS revenue_yoy_change,
+    f.operating_income - LAG(f.operating_income, 1) OVER w AS operating_income_yoy_change,
+    f.net_income - LAG(f.net_income, 1) OVER w AS net_income_yoy_change,
+    -- YoY変化率（%）
+    CASE
+        WHEN LAG(f.revenue, 1) OVER w IS NOT NULL AND LAG(f.revenue, 1) OVER w != 0
+        THEN ROUND((f.revenue - LAG(f.revenue, 1) OVER w) * 100.0 / ABS(LAG(f.revenue, 1) OVER w), 2)
+        ELSE NULL
+    END AS revenue_yoy_pct,
+    CASE
+        WHEN LAG(f.operating_income, 1) OVER w IS NOT NULL AND LAG(f.operating_income, 1) OVER w != 0
+        THEN ROUND((f.operating_income - LAG(f.operating_income, 1) OVER w) * 100.0 / ABS(LAG(f.operating_income, 1) OVER w), 2)
+        ELSE NULL
+    END AS operating_income_yoy_pct,
+    CASE
+        WHEN LAG(f.net_income, 1) OVER w IS NOT NULL AND LAG(f.net_income, 1) OVER w != 0
+        THEN ROUND((f.net_income - LAG(f.net_income, 1) OVER w) * 100.0 / ABS(LAG(f.net_income, 1) OVER w), 2)
+        ELSE NULL
+    END AS net_income_yoy_pct
+FROM financials f
+INNER JOIN companies c ON f.ticker_code = c.ticker_code
+WINDOW w AS (PARTITION BY f.ticker_code, f.fiscal_quarter ORDER BY f.fiscal_year)
+ORDER BY f.ticker_code, f.fiscal_year, f.fiscal_quarter;
+
+-- ============================================
+-- ビュー: 前四半期比較（QoQ）
+-- ============================================
+CREATE VIEW IF NOT EXISTS v_financials_qoq AS
+SELECT
+    f.id,
+    f.ticker_code,
+    c.company_name,
+    f.fiscal_year,
+    f.fiscal_quarter,
+    f.fiscal_end_date,
+    f.announcement_date,
+    -- 当期の値
+    f.revenue,
+    f.operating_income,
+    f.net_income,
+    f.eps,
+    -- 前四半期の値
+    LAG(f.revenue, 1) OVER w AS revenue_prev_quarter,
+    LAG(f.operating_income, 1) OVER w AS operating_income_prev_quarter,
+    LAG(f.net_income, 1) OVER w AS net_income_prev_quarter,
+    LAG(f.eps, 1) OVER w AS eps_prev_quarter,
+    -- QoQ変化額
+    f.revenue - LAG(f.revenue, 1) OVER w AS revenue_qoq_change,
+    f.operating_income - LAG(f.operating_income, 1) OVER w AS operating_income_qoq_change,
+    f.net_income - LAG(f.net_income, 1) OVER w AS net_income_qoq_change,
+    -- QoQ変化率（%）
+    CASE
+        WHEN LAG(f.revenue, 1) OVER w IS NOT NULL AND LAG(f.revenue, 1) OVER w != 0
+        THEN ROUND((f.revenue - LAG(f.revenue, 1) OVER w) * 100.0 / ABS(LAG(f.revenue, 1) OVER w), 2)
+        ELSE NULL
+    END AS revenue_qoq_pct,
+    CASE
+        WHEN LAG(f.operating_income, 1) OVER w IS NOT NULL AND LAG(f.operating_income, 1) OVER w != 0
+        THEN ROUND((f.operating_income - LAG(f.operating_income, 1) OVER w) * 100.0 / ABS(LAG(f.operating_income, 1) OVER w), 2)
+        ELSE NULL
+    END AS operating_income_qoq_pct
+FROM financials f
+INNER JOIN companies c ON f.ticker_code = c.ticker_code
+WHERE f.fiscal_quarter != 'FY'
+WINDOW w AS (
+    PARTITION BY f.ticker_code
+    ORDER BY f.fiscal_year,
+             CASE f.fiscal_quarter
+                WHEN 'Q1' THEN 1
+                WHEN 'Q2' THEN 2
+                WHEN 'Q3' THEN 3
+                WHEN 'Q4' THEN 4
+             END
+)
+ORDER BY f.ticker_code, f.fiscal_year, f.fiscal_quarter;
 
 -- ============================================
 -- ビュー: 最新株価

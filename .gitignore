@@ -31,3 +31,26 @@ Thumbs.db
 
 # Data files (optional - remove if you want to track CSV)
 # data/csv/*.csv
+
+# XBRL cache
+data/xbrl_cache/
+
+# TDnet cache
+data/tdnet_cache/
+
+# Downloaded PDFs
+data/pdf/
+
+# XBRLP library cache
+lib/xbrlp/.cache/
+
+# Test coverage reports
+.coverage
+*/.coverage
+htmlcov/
+
+# Database backups
+db/*.backup_*
+
+# Temporary CSV files
+missing_edinet.csv

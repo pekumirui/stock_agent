@@ -72,7 +72,7 @@ def parse_jpx_data(df: pd.DataFrame) -> list:
                     sector_17 = str(value).strip() if pd.notna(value) else None
             
             # 有効なデータのみ追加
-            if ticker_code and company_name and len(ticker_code) == 4 and ticker_code.isdigit():
+            if ticker_code and company_name and 4 <= len(ticker_code) <= 5 and ticker_code.isdigit():
                 companies.append({
                     'ticker_code': ticker_code,
                     'company_name': company_name,

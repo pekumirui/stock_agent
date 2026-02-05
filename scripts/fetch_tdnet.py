@@ -1,0 +1,555 @@
+"""
+決算短信取得バッチ - TDnet Webスクレイピング
+
+TDnetから決算短信のXBRLを取得し、決算情報をDBに保存する
+
+使用方法:
+    python fetch_tdnet.py                           # 本日分のTDnet決算短信を取得
+    python fetch_tdnet.py --days 7                  # 過去7日分
+    python fetch_tdnet.py --ticker 7203,6758        # 特定銘柄のみ
+    python fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05  # 日付範囲指定
+"""
+import argparse
+import re
+import shutil
+import sys
+import tempfile
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+
+import requests
+from bs4 import BeautifulSoup
+
+# プロジェクトのベースディレクトリ
+BASE_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(BASE_DIR / "lib"))
+
+# XBRL解析関数を fetch_financials.py から再利用
+from fetch_financials import (
+    parse_ixbrl_financials,
+    extract_edinet_zip,
+)
+
+from db_utils import (
+    insert_financial,
+    log_batch_start, log_batch_end
+)
+
+
+# ============================================
+# 定数
+# ============================================
+
+# TDnet URL
+TDNET_BASE_URL = "https://www.release.tdnet.info/inbs/"
+TDNET_MAIN_PAGE = "I_main_00.html"
+
+# キャッシュディレクトリ
+TDNET_CACHE_DIR = BASE_DIR / "data" / "tdnet_cache"
+
+# レート制限
+TDNET_REQUEST_SLEEP = 0.5  # 秒
+
+# 決算期判定パターン
+FISCAL_YEAR_PATTERN = r'(\d{4})年.*?期'
+QUARTER_PATTERN = r'第([1-3])四半期'
+FULL_YEAR_KEYWORDS = ['通期', '本決算', '期末']
+
+# 月から四半期への変換（フォールバック用）
+MONTH_TO_QUARTER = {
+    3: 'FY', 4: 'Q1', 5: 'Q1', 6: 'Q1',
+    7: 'Q2', 8: 'Q2', 9: 'Q2',
+    10: 'Q3', 11: 'Q3', 12: 'Q3',
+    1: 'Q3', 2: 'FY'
+}
+
+
+# ============================================
+# 決算期判定関数
+# ============================================
+
+def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
+    """
+    決算短信タイトルと発表日から決算期を判定
+
+    Args:
+        title: 決算短信タイトル（例: "2024年3月期 第1四半期決算短信"）
+        announcement_date: 発表日（YYYY-MM-DD）
+
+    Returns:
+        (fiscal_year: str, fiscal_quarter: str)
+
+    Examples:
+        >>> detect_fiscal_period("2024年3月期 第1四半期決算短信", "2024-05-10")
+        ("2024", "Q1")
+
+        >>> detect_fiscal_period("2024年3月期 通期決算短信", "2024-05-10")
+        ("2024", "FY")
+    """
+    # 1. 年度を抽出
+    fiscal_year = None
+    year_match = re.search(FISCAL_YEAR_PATTERN, title)
+    if year_match:
+        fiscal_year = year_match.group(1)
+    else:
+        # フォールバック: 発表日の年を使用
+        fiscal_year = announcement_date[:4]
+
+    # 2. 四半期を判定
+    fiscal_quarter = 'FY'  # デフォルトは通期
+
+    # 通期キーワードチェック
+    is_full_year = any(kw in title for kw in FULL_YEAR_KEYWORDS)
+    if is_full_year:
+        fiscal_quarter = 'FY'
+    else:
+        # 四半期パターンチェック
+        quarter_match = re.search(QUARTER_PATTERN, title)
+        if quarter_match:
+            q_num = quarter_match.group(1)
+            fiscal_quarter = f'Q{q_num}'
+        else:
+            # フォールバック: 発表月から推定
+            month = int(announcement_date[5:7])
+            fiscal_quarter = MONTH_TO_QUARTER.get(month, 'FY')
+
+    return fiscal_year, fiscal_quarter
+
+
+# ============================================
+# TDnet クライアント
+# ============================================
+
+class TdnetClient:
+    """TDnet HTMLスクレイピングクライアント"""
+
+    def __init__(self, cache_dir: Path = None):
+        """
+        Args:
+            cache_dir: HTMLキャッシュディレクトリ
+        """
+        self.session = requests.Session()
+        self.cache_dir = cache_dir or TDNET_CACHE_DIR
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_announcements(self, date: str) -> List[Dict[str, Any]]:
+        """
+        指定日の適時開示一覧から決算短信をフィルタして返す
+
+        Args:
+            date: 対象日（YYYY-MM-DD）
+
+        Returns:
+            [{
+                'ticker_code': '7203',
+                'company_name': 'トヨタ自動車',
+                'title': '2024年3月期 第1四半期決算短信',
+                'announcement_date': '2024-05-10',
+                'xbrl_zip_url': 'https://...',
+            }, ...]
+        """
+        announcements = []
+
+        # 日付を TDnet のフォーマットに変換（例: I_list_001_20240510.html）
+        date_str = date.replace('-', '')
+        page_file = f"I_list_001_{date_str}.html"
+        print(f"  [DEBUG] ページファイル: {page_file}")
+
+        # ページURLを取得（複数ページの可能性もある）
+        page_urls = [page_file]
+        processed_urls = set()
+
+        for page_url in page_urls:
+            # 無限ループ防止：同じURLを2回処理しない
+            if page_url in processed_urls:
+                print(f"  [DEBUG] スキップ（処理済み）: {page_url}")
+                continue
+            processed_urls.add(page_url)
+            try:
+                # HTMLを取得
+                soup = self._fetch_page(page_url)
+                if soup is None:
+                    continue
+
+                # テーブルを解析
+                table = soup.find("table", {"id": "main-list-table"})
+                if table is None:
+                    # データがない日
+                    continue
+
+                rows = table.find_all('tr')
+                if not rows:
+                    continue
+
+                # 各行を処理
+                for row in rows:
+                    announcement = self._parse_row(row, date)
+                    if announcement:
+                        announcements.append(announcement)
+
+                # ページネーションチェック
+                next_pages = self._get_pagination_urls(soup)
+                print(f"  [DEBUG] ページネーション: {len(next_pages)}ページ追加")
+                page_urls.extend(next_pages)
+
+            except Exception as e:
+                print(f"  [ERROR] ページ取得失敗 ({page_url}): {e}")
+                continue
+
+        return announcements
+
+    def _fetch_page(self, page_url: str) -> Optional[BeautifulSoup]:
+        """
+        TDnetページをフェッチ（キャッシュ利用）
+
+        Args:
+            page_url: ページファイル名（例: I_list_001_20240510.html）
+
+        Returns:
+            BeautifulSoup: 解析済みHTML
+        """
+        cache_path = self.cache_dir / page_url
+
+        # キャッシュチェック
+        if cache_path.exists():
+            print(f"  [DEBUG] キャッシュ使用: {page_url}")
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return BeautifulSoup(f.read(), 'html.parser')
+
+        # HTTPリクエスト
+        url = TDNET_BASE_URL + page_url
+        print(f"  [DEBUG] HTTPリクエスト開始: {url}")
+        try:
+            response = self.session.get(url, timeout=10)
+            print(f"  [DEBUG] レスポンス受信: {response.status_code}")
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # キャッシュに保存
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                f.write(soup.prettify())
+
+            print(f"  [DEBUG] キャッシュ保存: {cache_path}")
+            return soup
+
+        except Exception as e:
+            print(f"  [ERROR] HTTPリクエスト失敗 ({url}): {e}")
+            return None
+
+    def _parse_row(self, row: BeautifulSoup, announcement_date: str) -> Optional[Dict[str, Any]]:
+        """
+        テーブル行から決算短信情報を抽出
+
+        Args:
+            row: BeautifulSoup row要素
+            announcement_date: 発表日（YYYY-MM-DD）
+
+        Returns:
+            決算短信情報の辞書（決算短信でない場合はNone）
+        """
+        # タイトルセル
+        title_td = row.find('td', {'class': 'kjTitle'})
+        if title_td is None:
+            return None
+
+        title = title_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")
+
+        # XBRLセル
+        xbrl_td = row.find('td', {'class': 'kjXbrl'})
+        if xbrl_td is None:
+            return None
+
+        xbrl_text = xbrl_td.get_text()
+
+        # 決算短信 + XBRL のみ抽出
+        if '決算短信' not in title or 'XBRL' not in xbrl_text:
+            return None
+
+        # 証券コード
+        code_td = row.find('td', {'class': 'kjCode'})
+        if code_td is None:
+            return None
+        ticker_code = code_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")[:-1]  # 末尾の1文字削除（チェックディジット等）
+
+        # 会社名
+        name_td = row.find('td', {'class': 'kjName'})
+        company_name = name_td.get_text().replace("\n", "").replace("　", "").replace(" ", "") if name_td else ""
+
+        # XBRL ZIP URL
+        zip_link = xbrl_td.find('a', {'class': 'style002'})
+        if zip_link is None:
+            return None
+        zip_filename = zip_link['href']
+        zip_url = TDNET_BASE_URL + zip_filename
+
+        return {
+            'ticker_code': ticker_code,
+            'company_name': company_name,
+            'title': title,
+            'announcement_date': announcement_date,
+            'xbrl_zip_url': zip_url,
+        }
+
+    def _get_pagination_urls(self, soup: BeautifulSoup) -> List[str]:
+        """
+        ページネーションURLを取得
+
+        Args:
+            soup: BeautifulSoup
+
+        Returns:
+            次ページのURLリスト
+        """
+        page_urls = []
+
+        page_td = soup.find("td", {'class': 'pagerTd'})
+        if page_td is None:
+            return page_urls
+
+        pages = page_td.find_all('div', {'class': 'pager-M'})
+        for page in pages:
+            onclick = page.get('onclick')
+            if onclick:
+                # onclick="pagerLink('I_list_002_20240510.html')" から URL を抽出
+                page_url = onclick.replace("pagerLink", "").replace("(", "").replace(")", "").replace("'", "")
+                page_urls.append(page_url)
+
+        return page_urls
+
+    def download_xbrl_zip(self, zip_url: str) -> Optional[bytes]:
+        """
+        XBRL ZIPファイルをダウンロード
+
+        Args:
+            zip_url: ZIPファイルのURL
+
+        Returns:
+            ZIPファイルのバイト列（失敗時はNone）
+        """
+        try:
+            response = self.session.get(zip_url, timeout=60)
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            print(f"  [ERROR] ZIPダウンロード失敗 ({zip_url}): {e}")
+            return None
+
+
+# ============================================
+# メイン処理関数
+# ============================================
+
+def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]) -> bool:
+    """
+    1つの決算短信を処理
+
+    Args:
+        client: TdnetClientインスタンス
+        announcement: 決算短信情報
+
+    Returns:
+        処理成功時 True
+    """
+    ticker_code = announcement['ticker_code']
+    company_name = announcement['company_name']
+    title = announcement['title']
+    announcement_date = announcement['announcement_date']
+    xbrl_zip_url = announcement['xbrl_zip_url']
+
+    print(f"  処理中: {ticker_code} - {company_name}")
+    print(f"    タイトル: {title}")
+
+    # 決算期を判定
+    fiscal_year, fiscal_quarter = detect_fiscal_period(title, announcement_date)
+    print(f"    決算期: {fiscal_year} {fiscal_quarter}")
+
+    # XBRL ZIP をダウンロード
+    zip_content = client.download_xbrl_zip(xbrl_zip_url)
+    if not zip_content:
+        return False
+
+    # ZIP を展開
+    extracted_path = extract_edinet_zip(zip_content)
+    if not extracted_path:
+        return False
+
+    # temp_dirを特定（クリーンアップ用）
+    temp_dir = extracted_path
+    while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
+        temp_dir = temp_dir.parent
+    if not str(temp_dir.name).startswith("edinet_"):
+        temp_dir = extracted_path
+        while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
+            temp_dir = temp_dir.parent
+
+    try:
+        # XBRL を解析
+        print(f"    パーサー: XBRLP (iXBRL)")
+        financials = parse_ixbrl_financials(extracted_path)
+
+        if not financials:
+            print(f"    [WARN] 財務データを抽出できませんでした")
+            return False
+
+        # DBに保存（上書きチェックは insert_financial 内で実施）
+        saved = insert_financial(
+            ticker_code=ticker_code,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+            fiscal_end_date=None,  # TDnetには期末日情報がない
+            announcement_date=announcement_date,
+            revenue=financials.get('revenue'),
+            gross_profit=financials.get('gross_profit'),
+            operating_income=financials.get('operating_income'),
+            ordinary_income=financials.get('ordinary_income'),
+            net_income=financials.get('net_income'),
+            eps=financials.get('eps'),
+            source='TDnet',
+            edinet_doc_id=None
+        )
+
+        if saved:
+            print(f"    保存完了: 売上={financials.get('revenue')}, 営業利益={financials.get('operating_income')}")
+            return True
+        else:
+            # スキップされた（EDINET データが既に存在）
+            return False
+
+    finally:
+        # 一時ディレクトリを確実にクリーンアップ
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def fetch_tdnet_financials(days: int = 1, tickers: list = None,
+                          date_from: str = None, date_to: str = None):
+    """
+    TDnet決算短信を取得
+
+    Args:
+        days: 過去N日分を取得（デフォルト1日）
+        tickers: 対象銘柄リスト（None=全銘柄）
+        date_from: 日付範囲開始（YYYY-MM-DD）
+        date_to: 日付範囲終了（YYYY-MM-DD）
+    """
+    log_id = log_batch_start("fetch_tdnet")
+    processed = 0
+
+    client = TdnetClient()
+
+    print(f"TDnet決算短信取得開始")
+    print("-" * 50)
+
+    try:
+        # 日付リストを生成
+        if date_from and date_to:
+            # 日付範囲指定
+            start = datetime.strptime(date_from, '%Y-%m-%d')
+            end = datetime.strptime(date_to, '%Y-%m-%d')
+            date_list = []
+            current = start
+            while current <= end:
+                date_list.append(current.strftime('%Y-%m-%d'))
+                current += timedelta(days=1)
+            print(f"対象期間: {date_from} ～ {date_to} ({len(date_list)}日間)")
+        else:
+            # 過去N日分
+            date_list = []
+            for i in range(days):
+                target_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                date_list.append(target_date)
+            print(f"対象期間: 過去{days}日分")
+
+        print("-" * 50)
+
+        # 日付ごとに処理
+        for target_date in date_list:
+            print(f"\n[{target_date}]")
+
+            # 決算短信一覧を取得
+            announcements = client.get_announcements(target_date)
+
+            if not announcements:
+                print("  決算短信なし")
+                continue
+
+            print(f"  {len(announcements)}件の決算短信")
+
+            # 銘柄フィルタ
+            if tickers:
+                announcements = [a for a in announcements if a['ticker_code'] in tickers]
+                print(f"  フィルタ後: {len(announcements)}件")
+
+            # 各決算短信を処理
+            for announcement in announcements:
+                if process_tdnet_announcement(client, announcement):
+                    processed += 1
+
+                # レート制限
+                time.sleep(TDNET_REQUEST_SLEEP)
+
+        log_batch_end(log_id, "success", processed)
+        print("-" * 50)
+        print(f"完了: {processed}件の決算短信を処理")
+
+    except Exception as e:
+        log_batch_end(log_id, "failed", processed, str(e))
+        print(f"\n[ERROR] バッチ失敗: {e}")
+        raise
+
+
+# ============================================
+# CLI エントリポイント
+# ============================================
+
+def main():
+    parser = argparse.ArgumentParser(description='TDnetから決算短信を取得')
+    parser.add_argument('--days', type=int, default=1,
+                       help='過去N日分を取得（デフォルト1日）')
+    parser.add_argument('--ticker', '-t',
+                       help='特定銘柄のみ取得（カンマ区切り）')
+    parser.add_argument('--date-from',
+                       help='日付範囲開始（YYYY-MM-DD）')
+    parser.add_argument('--date-to',
+                       help='日付範囲終了（YYYY-MM-DD）')
+    args = parser.parse_args()
+
+    # バリデーション
+    if args.date_from and args.date_to:
+        # 日付範囲指定モード
+        try:
+            datetime.strptime(args.date_from, '%Y-%m-%d')
+            datetime.strptime(args.date_to, '%Y-%m-%d')
+        except ValueError:
+            print("[ERROR] 日付フォーマットが不正です（YYYY-MM-DD）")
+            return
+
+        if args.date_from > args.date_to:
+            print("[ERROR] date-from が date-to より後です")
+            return
+
+        date_from = args.date_from
+        date_to = args.date_to
+        days = None
+
+    elif args.date_from or args.date_to:
+        print("[ERROR] --date-from と --date-to は両方指定してください")
+        return
+    else:
+        # 過去N日分モード
+        date_from = None
+        date_to = None
+        days = args.days
+
+    # 対象銘柄
+    tickers = None
+    if args.ticker:
+        tickers = [t.strip() for t in args.ticker.split(',')]
+
+    # バッチ実行
+    fetch_tdnet_financials(days=days, tickers=tickers, date_from=date_from, date_to=date_to)
+
+
+if __name__ == "__main__":
+    main()

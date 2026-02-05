@@ -34,10 +34,10 @@ class TestCompanies:
         assert isinstance(tickers, list)
 
     def test_ticker_format(self):
-        """銘柄コードが4桁数字であること"""
+        """銘柄コードが4-5桁数字であること"""
         tickers = get_all_tickers()
         for ticker in tickers[:10]:  # 最初の10件をチェック
-            assert len(ticker) == 4, f"銘柄コードは4桁: {ticker}"
+            assert 4 <= len(ticker) <= 5, f"銘柄コードは4-5桁: {ticker}"
             assert ticker.isdigit(), f"銘柄コードは数字のみ: {ticker}"
 
 
