@@ -44,14 +44,14 @@ from db_utils import (
 # EDINET API エンドポイント
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
-# 書類種別コード
+# 書類種別コード（EDINET API v2準拠）
 DOC_TYPE_CODES = {
     '120': '有価証券報告書',
-    '130': '四半期報告書',
-    '140': '半期報告書',
-    '150': '臨時報告書',
-    '160': '自己株券買付状況報告書',
-    '170': '発行登録追補書類',
+    '130': '訂正有価証券報告書',
+    '135': '確認書',
+    '160': '半期報告書',
+    '180': '臨時報告書',
+    '220': '自己株券買付状況報告書',
 }
 
 # XBRLP用: QName local_name → DBフィールドのマッピング（日本基準）
@@ -285,14 +285,14 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
         for manifest in sorted(temp_dir.rglob("manifest*.xml")):
             print(f"    [DEBUG] manifestファイル発見: {manifest.relative_to(temp_dir)}")
             # PublicDoc制約を緩和（TDnet対応）
-            if "PublicDoc" in str(manifest) or "XBRL" in str(manifest):
+            if "PublicDoc" in str(manifest) or ("XBRL" in str(manifest) and "AuditDoc" not in str(manifest)):
                 return [manifest]
 
         # manifestがない場合は.xbrlファイルを探す（旧形式フォールバック）
         for xbrl_file in sorted(temp_dir.rglob("*.xbrl")):
             print(f"    [DEBUG] XBRLファイル発見: {xbrl_file.relative_to(temp_dir)}")
             # PublicDoc制約を緩和（TDnet対応）
-            if "PublicDoc" in str(xbrl_file) or "XBRL" in str(xbrl_file):
+            if "PublicDoc" in str(xbrl_file) or ("XBRL" in str(xbrl_file) and "AuditDoc" not in str(xbrl_file)):
                 return [xbrl_file]
 
         print(f"    [WARN] ZIPにXBRL関連ファイルが見つかりません")
@@ -334,11 +334,11 @@ def _is_supported_namespace(qname: QName) -> bool:
 
 
 def _is_current_period_context(context_ref: str) -> bool:
-    """当期のコンテキストか判定"""
+    """当期のコンテキストか判定（有報: Current*, 半期報: Interim*）"""
     ctx = context_ref.lower()
     if 'prior' in ctx:
         return False
-    if 'current' in ctx:
+    if 'current' in ctx or 'interim' in ctx:
         return True
     return False
 
@@ -546,9 +546,9 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
         # パース方法を判定
         first_file = extracted_paths[0]
         if first_file.name.lower().startswith('manifest') and first_file.suffix == '.xml':
-            # iXBRL形式 → XBRLPパーサー使用
+            # iXBRL形式 → XBRLPパーサー使用（manifestは単一Pathで渡してprepare_ixbrlを呼ぶ）
             print(f"    パーサー: XBRLP (iXBRL)")
-            financials = parse_ixbrl_financials(extracted_paths)
+            financials = parse_ixbrl_financials(first_file)
         elif first_file.suffix.lower() in ['.htm', '.html']:
             # 直接htmファイル → XBRLPパーサー使用
             print(f"    パーサー: XBRLP (iXBRL)")
@@ -566,15 +566,8 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
         # 決算期を判定
         fiscal_year = period_end[:4] if period_end else submit_date[:4]
         fiscal_quarter = 'FY'  # 有報は通期
-        if doc_type == '130':  # 四半期報告書
-            if period_end:
-                month = int(period_end[5:7])
-                if month in [3, 6]:
-                    fiscal_quarter = 'Q1'
-                elif month in [6, 9]:
-                    fiscal_quarter = 'Q2'
-                elif month in [9, 12]:
-                    fiscal_quarter = 'Q3'
+        if doc_type == '160':  # 半期報告書
+            fiscal_quarter = 'Q2'
 
         # DBに保存
         insert_financial(
@@ -624,9 +617,9 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None):
             target_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
             print(f"\n[{target_date}]")
 
-            # 有価証券報告書を取得
+            # 有価証券報告書・半期報告書を取得
             docs = client.get_document_list(target_date, doc_type='120')
-            docs += client.get_document_list(target_date, doc_type='130')  # 四半期報告書
+            docs += client.get_document_list(target_date, doc_type='160')  # 半期報告書
 
             if not docs:
                 print("  書類なし")

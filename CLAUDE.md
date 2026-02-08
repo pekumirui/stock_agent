@@ -26,6 +26,7 @@
 - [x] IFRS/US-GAAP企業のP/L検出パターン修正（`scripts/fetch_tdnet.py`）- 全会計基準対応
 - [x] DB操作ロジック改善（`scripts/db_utils.py`）- ticker_exists()追加、FOREIGN KEY違反の事前チェック
 - [x] 包括的テストスイート（`tests/`）- 9テストファイル、実API統合テスト採用
+- [x] **EDINET決算取得の信頼性改善**（`scripts/fetch_financials.py`）- マニフェスト誤選択・引数型・半期報告書対応を修正
 
 ## 次のタスク（優先順）
 

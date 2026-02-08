@@ -115,8 +115,10 @@ python3 scripts/fetch_prices.py --full
 
 ### 決算取得 (fetch_financials.py)
 
+EDINETから有価証券報告書・半期報告書を取得します（正式版）。
+
 ```bash
-# 直近7日分
+# 直近7日分（有価証券報告書・半期報告書）
 python3 scripts/fetch_financials.py
 
 # 過去30日分
@@ -125,6 +127,10 @@ python3 scripts/fetch_financials.py --days 30
 # 特定銘柄のみ
 python3 scripts/fetch_financials.py --ticker 7203
 ```
+
+**対応書類種別**:
+- **有価証券報告書（docType=120）**: 通期決算（fiscal_quarter=FY）
+- **半期報告書（docType=160）**: 上期決算（fiscal_quarter=Q2）
 
 ### TDnet決算短信取得 (fetch_tdnet.py)
 
