@@ -34,6 +34,7 @@ from fetch_financials import (
 
 from db_utils import (
     insert_financial,
+    insert_announcement,
     log_batch_start, log_batch_end,
     is_valid_ticker_code,
     ticker_exists
@@ -242,31 +243,49 @@ class TdnetClient:
 
     def _parse_row(self, row: BeautifulSoup, announcement_date: str) -> Optional[Dict[str, Any]]:
         """
-        テーブル行から決算短信情報を抽出
+        テーブル行から適時開示情報を抽出
+
+        決算短信だけでなく、業績予想の修正・配当なども取得対象とする。
+        XBRL解析は決算短信のみ実施。
 
         Args:
             row: BeautifulSoup row要素
             announcement_date: 発表日（YYYY-MM-DD）
 
         Returns:
-            決算短信情報の辞書（決算短信でない場合はNone）
+            適時開示情報の辞書（対象外の場合はNone）
         """
         # タイトルセル
         title_td = row.find('td', {'class': 'kjTitle'})
         if title_td is None:
             return None
 
-        title = title_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")
+        title = title_td.get_text().replace("\n", "").replace("\u3000", "").replace(" ", "")
+
+        # 時刻を取得
+        time_td = row.find('td', {'class': 'kjTime'})
+        announcement_time = time_td.get_text().strip() if time_td else None
+
+        # announcement_type判定
+        if '決算短信' in title:
+            announcement_type = 'earnings'
+        elif '業績予想の修正' in title or '業績予想及び' in title:
+            announcement_type = 'revision'
+        elif '配当' in title:
+            announcement_type = 'dividend'
+        else:
+            announcement_type = 'other'
 
         # XBRLセル
         xbrl_td = row.find('td', {'class': 'kjXbrl'})
-        if xbrl_td is None:
+        has_xbrl = xbrl_td is not None and 'XBRL' in xbrl_td.get_text()
+
+        # 決算短信はXBRL必須、それ以外はタイトルで判定して取得
+        if announcement_type == 'earnings' and not has_xbrl:
             return None
 
-        xbrl_text = xbrl_td.get_text()
-
-        # 決算短信 + XBRL のみ抽出
-        if '決算短信' not in title or 'XBRL' not in xbrl_text:
+        # 決算短信・業績予想修正・配当のみ取得（その他はスキップ）
+        if announcement_type == 'other':
             return None
 
         # 証券コード
@@ -275,7 +294,7 @@ class TdnetClient:
             return None
 
         # TDnetは証券コードに末尾チェックデジットを付加 (例: 72030, 285A0)
-        code_text = code_td.get_text().replace("\n", "").replace("　", "").replace(" ", "")
+        code_text = code_td.get_text().replace("\n", "").replace("\u3000", "").replace(" ", "")
         if len(code_text) >= 5:
             # 最後の1文字を除去してバリデーション
             potential_ticker = code_text[:-1]
@@ -289,21 +308,31 @@ class TdnetClient:
 
         # 会社名
         name_td = row.find('td', {'class': 'kjName'})
-        company_name = name_td.get_text().replace("\n", "").replace("　", "").replace(" ", "") if name_td else ""
+        company_name = name_td.get_text().replace("\n", "").replace("\u3000", "").replace(" ", "") if name_td else ""
 
-        # XBRL ZIP URL
-        zip_link = xbrl_td.find('a', {'class': 'style002'})
-        if zip_link is None:
-            return None
-        zip_filename = zip_link['href']
-        zip_url = TDNET_BASE_URL + zip_filename
+        # XBRL ZIP URL（決算短信のみ）
+        xbrl_zip_url = None
+        if has_xbrl and announcement_type == 'earnings' and xbrl_td is not None:
+            zip_link = xbrl_td.find('a', {'class': 'style002'})
+            if zip_link:
+                zip_filename = zip_link['href']
+                xbrl_zip_url = TDNET_BASE_URL + zip_filename
+
+        # PDF URL
+        document_url = None
+        title_link = title_td.find('a')
+        if title_link and title_link.get('href'):
+            document_url = TDNET_BASE_URL + title_link['href']
 
         return {
             'ticker_code': ticker_code,
             'company_name': company_name,
             'title': title,
             'announcement_date': announcement_date,
-            'xbrl_zip_url': zip_url,
+            'announcement_time': announcement_time,
+            'announcement_type': announcement_type,
+            'xbrl_zip_url': xbrl_zip_url,
+            'document_url': document_url,
         }
 
     def _get_pagination_urls(self, soup: BeautifulSoup) -> List[str]:
@@ -372,7 +401,8 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
     company_name = announcement['company_name']
     title = announcement['title']
     announcement_date = announcement['announcement_date']
-    xbrl_zip_url = announcement['xbrl_zip_url']
+    announcement_time = announcement.get('announcement_time')
+    xbrl_zip_url = announcement.get('xbrl_zip_url')
 
     # 【NEW】事前チェック: JPXリスト（companiesテーブル）に登録されているか
     if not ticker_exists(ticker_code):
@@ -422,6 +452,7 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
             fiscal_quarter=fiscal_quarter,
             fiscal_end_date=None,  # TDnetには期末日情報がない
             announcement_date=announcement_date,
+            announcement_time=announcement_time,
             revenue=financials.get('revenue'),
             gross_profit=financials.get('gross_profit'),
             operating_income=financials.get('operating_income'),
@@ -472,6 +503,7 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
     """
     log_id = log_batch_start("fetch_tdnet")
     processed = 0
+    announcements_saved = 0
     skipped_out_of_scope = 0  # 【NEW】JPXリスト外のスキップ件数
 
     client = TdnetClient()
@@ -512,32 +544,53 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 print("  決算短信なし")
                 continue
 
-            print(f"  {len(announcements)}件の決算短信")
+            print(f"  {len(announcements)}件の適時開示")
 
             # 銘柄フィルタ
             if tickers:
                 announcements = [a for a in announcements if a['ticker_code'] in tickers]
                 print(f"  フィルタ後: {len(announcements)}件")
 
-            # 各決算短信を処理
+            # 各適時開示を処理
             for announcement in announcements:
                 ticker_code = announcement['ticker_code']
+                announcement_type = announcement.get('announcement_type', 'earnings')
 
                 # 【NEW】事前チェック
                 if not ticker_exists(ticker_code):
                     skipped_out_of_scope += 1
                     continue
 
-                # 処理
-                if process_tdnet_announcement(client, announcement):
-                    processed += 1
+                # 全announcements → announcements テーブルに保存
+                fiscal_year_ann, fiscal_quarter_ann = None, None
+                if announcement_type == 'earnings':
+                    fiscal_year_ann, fiscal_quarter_ann = detect_fiscal_period(
+                        announcement['title'], announcement['announcement_date']
+                    )
+                insert_announcement(
+                    ticker_code=ticker_code,
+                    announcement_date=announcement['announcement_date'],
+                    announcement_time=announcement.get('announcement_time'),
+                    announcement_type=announcement_type,
+                    title=announcement['title'],
+                    fiscal_year=fiscal_year_ann,
+                    fiscal_quarter=fiscal_quarter_ann,
+                    document_url=announcement.get('document_url'),
+                    source='TDnet'
+                )
+                announcements_saved += 1
 
-                # レート制限
-                time.sleep(TDNET_REQUEST_SLEEP)
+                # 決算短信のみ: XBRL解析 + financials 投入
+                if announcement_type == 'earnings' and announcement.get('xbrl_zip_url'):
+                    if process_tdnet_announcement(client, announcement):
+                        processed += 1
+
+                    # レート制限（XBRL DL時のみ）
+                    time.sleep(TDNET_REQUEST_SLEEP)
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
-        print(f"\n処理完了: {processed}件保存")
+        print(f"\n処理完了: 決算データ {processed}件保存, 適時開示 {announcements_saved}件保存")
         if skipped_out_of_scope > 0:
             print(f"JPXリスト外のためスキップ: {skipped_out_of_scope}件")
 
