@@ -13,7 +13,12 @@
       "WebFetch(domain:ranaroussi.github.io)",
       "Bash(python3 -m pytest:*)",
       "Bash(python3 -m pip install:*)",
-      "Bash(venv/bin/python -m pip install:*)"
+      "Bash(venv/bin/python -m pip install:*)",
+      "Bash(gh pr create:*)",
+      "Bash(wc:*)",
+      "Bash(xargs:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ]
   }
 }
