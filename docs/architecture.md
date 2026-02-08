@@ -6,26 +6,21 @@
 stock_agent/
 ├── .claude/
 │   ├── agents/
-│   │   ├── test-runner.yml          # テスト実行サブエージェント
-│   │   ├── test-case-generator.yml  # テストケース生成エージェント（※未認識）
-│   │   ├── test-reviewer.yml        # テストレビューエージェント（※未認識）
-│   │   └── data-validator.yml       # データ検証サブエージェント
-│   ├── rules/                       # プロジェクトルール（本ファイル含む）
-│   │   ├── 01-architecture.md       # アーキテクチャ設計
-│   │   ├── 02-coding-standards.md   # コーディング規約
-│   │   ├── 03-commands.md           # 開発コマンド
-│   │   ├── 04-workflow.md           # ワークフロー
-│   │   └── 05-testing.md            # テスト作成ガイド
+│   │   ├── code-reviewer.md          # コードレビューエージェント
+│   │   └── docs-updater.md           # ドキュメント更新エージェント
+│   ├── rules/
+│   │   └── coding-standards.md       # コーディング規約
 │   ├── skills/
-│   │   ├── test.md                  # /test スキル
-│   │   ├── test-workflow.md         # /test-workflow スキル（統合テストワークフロー）
+│   │   ├── test.md                   # /test スキル
+│   │   ├── pr.md                     # /pr スキル（PR作成）
 │   │   └── validate.md              # /validate スキル
-│   ├── test_progress.md             # テスト進捗管理・カバレッジ推移
 │   └── settings.local.json          # ローカル設定
 ├── db/
 │   ├── schema.sql                   # DBスキーマ定義
 │   ├── stock_agent.db               # SQLiteデータベース
-│   └── migrations/                  # DBマイグレーションファイル（将来）
+│   ├── yoyo.ini                     # yoyo-migrations設定
+│   └── migrations/                  # DBマイグレーションファイル
+│       └── V001__baseline.sql       # ベースラインマイグレーション
 ├── lib/
 │   └── xbrlp/                       # XBRLパーサーライブラリ（vendored）
 │       ├── __init__.py              # Parser, Fact, QName等のexport
@@ -36,26 +31,33 @@ stock_agent/
 │   ├── init_companies.py            # 銘柄マスタ初期化（JPX/サンプル）
 │   ├── fetch_prices.py              # 株価取得（Yahoo Finance）
 │   ├── fetch_financials.py          # 決算取得（EDINET + XBRLP）
-│   ├── fetch_tdnet.py               # 決算短信取得（TDnet Webスクレイピング + XBRLP）
+│   ├── fetch_tdnet.py               # 決算短信取得（TDnet + XBRLP）
 │   ├── update_edinet_codes.py       # EDINETコード一括更新
-│   ├── migrate.py                   # データベースマイグレーション管理
+│   ├── analyze_missing_edinet.py    # EDINETコード欠損分析
 │   ├── validate_schema.py           # スキーマ検証ツール
+│   ├── migrate.py                   # DBマイグレーション管理
 │   └── run_daily_batch.py           # 日次バッチメイン
 ├── tests/                           # テストコード
-│   ├── conftest.py                  # pytest共通fixture（テストDB、サンプルデータ）
+│   ├── conftest.py                  # pytest共通fixture
 │   ├── test_db_utils.py             # DB操作のテスト
 │   ├── test_init_companies.py       # 銘柄マスタ初期化のテスト
 │   ├── test_fetch_prices.py         # 株価取得のテスト（実API統合）
-│   ├── test_fetch_financials.py     # 決算取得のテスト（実API統合）
-│   ├── test_fetch_tdnet.py          # TDnet取得のテスト（実API統合）
+│   ├── test_fetch_financials.py     # 決算取得のテスト
+│   ├── test_fetch_tdnet.py          # TDnet取得のテスト
+│   ├── test_update_edinet_codes.py  # EDINETコード更新のテスト
+│   ├── test_analyze_missing_edinet.py # 欠損分析のテスト
 │   ├── test_financial_views.py      # YoY/QoQビューのテスト
 │   └── test_migrations.py           # マイグレーションのテスト
 ├── data/                            # データキャッシュ（gitignore）
 │   ├── xbrl_cache/                  # XBRLリモートファイルキャッシュ
-│   └── pdf/                         # 決算短信PDF保存用（将来）
+│   ├── tdnet_cache/                 # TDnet HTMLキャッシュ
+│   └── csv/                         # CSV出力用
+├── docs/
+│   ├── architecture.md              # アーキテクチャ（本ファイル）
+│   └── commands.md                  # 開発コマンドリファレンス
 ├── logs/                            # ログ出力用
 ├── .env                             # 環境変数（gitignore）
-├── .env.example                     # 環境変数テンプレート
+├── requirements.txt                 # 依存パッケージ
 ├── README.md
 └── CLAUDE.md
 ```
