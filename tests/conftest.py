@@ -53,6 +53,8 @@ def test_db():
 
         # テストデータを削除
         conn.execute("DELETE FROM batch_logs WHERE batch_name LIKE '%test%' OR batch_name = 'fetch_prices'")
+        conn.execute("DELETE FROM announcements WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
+        conn.execute("DELETE FROM management_forecasts WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
         conn.execute("DELETE FROM financials WHERE source = 'TEST' OR ticker_code LIKE '9%' OR ticker_code = '7203'")
         conn.execute("DELETE FROM daily_prices WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
         conn.execute("DELETE FROM stock_splits WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
