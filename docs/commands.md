@@ -36,8 +36,17 @@ python scripts/update_edinet_codes.py
 # EDINETコード更新（過去30日分から収集）
 python scripts/update_edinet_codes.py --days 30
 
-# 日次バッチ実行
+# 日次バッチ実行（株価 + EDINET + TDnet）
 python scripts/run_daily_batch.py
+
+# TDnetスキップ
+python scripts/run_daily_batch.py --skip-tdnet
+
+# EDINET決算取得（処理済みスキップ付き）
+python scripts/fetch_financials.py --days 30
+
+# EDINET決算取得（処理済みも再取得）
+python scripts/fetch_financials.py --days 30 --force
 ```
 
 ## テスト
@@ -64,4 +73,9 @@ python3 scripts/validate_schema.py
 
 # スキーマ検証（特定銘柄）
 python3 scripts/validate_schema.py --ticker 7203
+
+#デバッグ用
+-uを付けることでリアルタイムに出力される
+python3 -u scripts/update_edinet_codes.py --days 720 --api-key <APIキー> > logs/update_edinet_codes.log 2>&1
 ```
+

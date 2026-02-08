@@ -146,11 +146,21 @@ python3 scripts/fetch_financials.py --days 30
 
 # 特定銘柄のみ
 python3 scripts/fetch_financials.py --ticker 7203
+
+# 処理済み書類も再取得（通常は自動スキップ）
+python3 scripts/fetch_financials.py --force
 ```
 
 **対応書類種別**:
 - **有価証券報告書（docType=120）**: 通期決算（fiscal_quarter=FY）
 - **半期報告書（docType=160）**: 上期決算（fiscal_quarter=Q2）
+
+**パフォーマンス最適化**:
+- EDINETコード→証券コードのマッピングを起動時に一括ロード
+- 処理済み書類は自動スキップ（`--force`で無効化可能）
+- API呼び出しをdocType統合で最適化
+
+**対応業種（XBRLマッピング）**: 一般企業、建設業、銀行業、証券業、保険業、鉄道・不動産、電力・ガス、海運業、商社・サービス等。IFRS/US-GAAP企業にも対応。
 
 ### TDnet決算短信取得 (fetch_tdnet.py)
 
@@ -270,6 +280,7 @@ python3 scripts/validate_schema.py --dry-run
 | v_latest_financials | 各銘柄の最新決算（銘柄情報付き） |
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
+| v_missing_financials | 決算データ欠損フィールド確認 |
 
 ## SQLiteでの確認
 

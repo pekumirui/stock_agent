@@ -433,7 +433,20 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
         )
 
         if saved:
-            print(f"    保存完了: 売上={financials.get('revenue')}, 営業利益={financials.get('operating_income')}")
+            fields = {
+                '売上': financials.get('revenue'),
+                '売上総利益': financials.get('gross_profit'),
+                '営業利益': financials.get('operating_income'),
+                '経常利益': financials.get('ordinary_income'),
+                '純利益': financials.get('net_income'),
+                'EPS': financials.get('eps'),
+            }
+            missing = [k for k, v in fields.items() if v is None]
+            detail = ", ".join(f"{k}={v}" for k, v in fields.items())
+            if missing:
+                print(f"    [一部欠損] {detail}（欠損: {', '.join(missing)}）")
+            else:
+                print(f"    保存完了: {detail}")
             return True
         else:
             # スキップされた（EDINET データが既に存在）

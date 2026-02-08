@@ -51,3 +51,6 @@ db/*.backup_*
 missing_edinet.csv
 venv/
 venv/
+
+# ローカル環境の検証ログ
+logs/*

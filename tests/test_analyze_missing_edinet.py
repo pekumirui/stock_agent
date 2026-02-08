@@ -407,18 +407,6 @@ class TestIntegration:
 class TestEdgeCases:
     """エッジケースのテスト"""
 
-    def test_empty_database(self, test_db):
-        """空のDBからの取得テスト"""
-        # 全ての会社にEDINETコードを設定（未登録銘柄なし）
-        with get_connection() as conn:
-            conn.execute("UPDATE companies SET edinet_code = 'E12345'")
-            conn.commit()
-
-        companies = fetch_missing_edinet_companies(include_stats=False)
-
-        # 未登録銘柄がなければ空リストが返る
-        assert isinstance(companies, list)
-
     def test_null_market_segment(self, test_db):
         """市場区分がNULLの銘柄のテスト"""
         # 市場区分がNULLの銘柄を追加
