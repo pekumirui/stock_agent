@@ -1,9 +1,10 @@
 # ワークフロー・Git/PR運用ルール
 
 ## PR作成
-- コード変更が完了したら、pull-request-creatorサブエージェントでPR作成を提案する
-- `/pr` コマンドでも手動実行可能
+- `scripts/`、`lib/`、`tests/`、`db/` 配下のファイルを変更したら、テスト・ドキュメント更新まで完了後に自動でPRを作成する
+- PR作成にはpull-request-creatorサブエージェントを使う。`/pr` コマンドでも手動実行可能
 - PRにはコード・テスト・ドキュメント変更を全て含めてから作成する（PR作成後にdocs追加しない）
+- CLAUDE.md や rules/ のみの変更はPR不要（直接mainにコミット可）
 
 ## Git & GitHub Authentication
 - GitHub Fine-grained PATs require explicit 'Contents: Read and write' permission for push operations. Never assume a token has push access—verify with `gh auth status` first.
