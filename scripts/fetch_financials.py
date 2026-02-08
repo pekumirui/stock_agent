@@ -246,7 +246,7 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
         Summary/
           tse-acedifsm-*.htm (決算短信サマリー - 財務ハイライト)
         Attachment/
-          *.htm (詳細財務諸表: acpl=P/L, acbs=B/S等)
+          *.htm (詳細財務諸表: *pl*=P/L, *bs*=B/S等)
           manifest.xml
 
     Returns:
@@ -270,8 +270,9 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
                 print(f"    [DEBUG] TDnet Summaryファイル発見: {summary_htm.relative_to(temp_dir)}")
                 result_files.append(summary_htm)
 
-        # TDnet対応: Attachment内の損益計算書（acpl = P/L）でgross_profitを取得
-        for attachment_htm in sorted(temp_dir.rglob("*acpl*ixbrl.htm")):
+        # TDnet対応: Attachment内の損益計算書（P/L）でgross_profitを取得
+        # ファイル名パターン: J-GAAP=acedjppl, IFRS=acifrspl, US-GAAP=acusgpl
+        for attachment_htm in sorted(temp_dir.rglob("*pl*ixbrl.htm")):
             if "Attachment" in attachment_htm.parts:
                 print(f"    [DEBUG] TDnet P/Lファイル発見: {attachment_htm.relative_to(temp_dir)}")
                 result_files.append(attachment_htm)
