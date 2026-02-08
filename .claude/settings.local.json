@@ -7,7 +7,13 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:yfinance.readthedocs.io)",
       "WebFetch(domain:www.release.tdnet.info)",
-      "WebFetch(domain:seiryu-pg-investment.com)"
+      "WebFetch(domain:seiryu-pg-investment.com)",
+      "Bash(sqlite3:*)",
+      "Bash(python3:*)",
+      "WebFetch(domain:ranaroussi.github.io)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(python3 -m pip install:*)",
+      "Bash(venv/bin/python -m pip install:*)"
     ]
   }
 }

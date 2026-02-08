@@ -27,7 +27,7 @@ stock_agent/
 
 ```bash
 pip install yfinance pandas requests openpyxl　xlrd
-python3 -m pip install yfinance pandas requests openpyxl　xlrd
+python3 -m pip install yfinance pandas requests openpyxl xlrd
 ```
 
 ### 2. 初回セットアップ（銘柄マスタ + サンプルデータ）
