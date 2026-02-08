@@ -74,6 +74,8 @@ XBRL_FACT_MAPPING = {
     'OperatingRevenueSEC': 'revenue',                            # 証券業
     'OperatingRevenueSPF': 'revenue',                            # 特定金融業
     'OrdinaryIncomeBNK': 'revenue',                              # 銀行業（経常収益）
+    'OrdinaryIncomeINS': 'revenue',                              # 保険業（経常収益）
+    'OperatingIncomeINS': 'revenue',                             # 保険業（営業収益）
     'TotalOperatingRevenue': 'revenue',                          # 営業収益合計
     # 売上高（有価証券報告書 経営指標サマリー - jpcrp_cor）
     'NetSalesSummaryOfBusinessResults': 'revenue',
@@ -83,6 +85,7 @@ XBRL_FACT_MAPPING = {
     'NetSalesAndOperatingRevenueSummaryOfBusinessResults': 'revenue',
     'BusinessRevenueSummaryOfBusinessResults': 'revenue',
     'OrdinaryIncomeBNKSummaryOfBusinessResults': 'revenue',
+    'OrdinaryIncomeINSSummaryOfBusinessResults': 'revenue',      # 保険業（有報サマリー）
     'RevenueIFRSSummaryOfBusinessResults': 'revenue',            # IFRS企業の有報
     'RevenuesUSGAAPSummaryOfBusinessResults': 'revenue',         # US-GAAP企業の有報
     # 売上総利益
@@ -96,13 +99,19 @@ XBRL_FACT_MAPPING = {
     # 営業利益
     'OperatingIncome': 'operating_income',
     'OperatingProfit': 'operating_income',
+    # 営業利益（IFRS有報/半期報サマリー - jpcrp_cor）
+    'OperatingProfitLossIFRSSummaryOfBusinessResults': 'operating_income',
     # 経常利益
     'OrdinaryIncome': 'ordinary_income',
     'OrdinaryProfit': 'ordinary_income',
+    # 経常利益（IFRS有報/半期報サマリー - jpcrp_cor、税引前利益）
+    'ProfitLossBeforeTaxIFRSSummaryOfBusinessResults': 'ordinary_income',
     # 当期純利益
     'ProfitLoss': 'net_income',
     'NetIncome': 'net_income',
     'ProfitLossAttributableToOwnersOfParent': 'net_income',
+    # 当期純利益（IFRS有報/半期報サマリー - jpcrp_cor）
+    'ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults': 'net_income',
     # EPS
     'BasicEarningsLossPerShare': 'eps',
     'EarningsPerShare': 'eps',
@@ -127,14 +136,17 @@ XBRL_FACT_MAPPING_IFRS = {
     # 営業利益（IFRSでは複数パターンあり）
     'ProfitLossFromOperatingActivities': 'operating_income',
     'OperatingProfitLoss': 'operating_income',
-    'OperatingIncomeIFRS': 'operating_income',  # TDnet用
+    'OperatingProfitLossIFRS': 'operating_income',             # EDINET jpigp_cor用
+    'OperatingIncomeIFRS': 'operating_income',                 # TDnet用
     # 税引前利益（IFRSに経常利益はない）
     'ProfitLossBeforeTax': 'ordinary_income',
-    'ProfitBeforeTaxIFRS': 'ordinary_income',  # TDnet用
+    'ProfitLossBeforeTaxIFRS': 'ordinary_income',              # EDINET jpigp_cor用
+    'ProfitBeforeTaxIFRS': 'ordinary_income',                  # TDnet用
     # 純利益
     'ProfitLossAttributableToOwnersOfParent': 'net_income',
     'ProfitLoss': 'net_income',
-    'ProfitAttributableToOwnersOfParentIFRS': 'net_income',  # TDnet用
+    'ProfitLossAttributableToOwnersOfParentIFRS': 'net_income', # EDINET jpigp_cor用
+    'ProfitAttributableToOwnersOfParentIFRS': 'net_income',    # TDnet用
     # EPS
     'BasicEarningsLossPerShare': 'eps',
     'DilutedEarningsLossPerShare': 'eps',
@@ -475,8 +487,14 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
         return {}
 
     if unmatched_elements:
-        print(f"    [DEBUG] 未マッチXBRL要素 ({len(unmatched_elements)}件): "
-              f"{', '.join(sorted(unmatched_elements)[:15])}")
+        # P/L関連要素を優先表示（アルファベット順だとO*,P*が埋もれるため）
+        pl_prefixes = ('Operating', 'Profit', 'Net', 'Revenue', 'Gross', 'Basic', 'Diluted', 'Earnings', 'Ordinary')
+        pl_elements = sorted(e for e in unmatched_elements if any(e.split(':')[-1].startswith(p) for p in pl_prefixes))
+        other_count = len(unmatched_elements) - len(pl_elements)
+        display = pl_elements[:20]
+        print(f"    [DEBUG] 未マッチXBRL要素 ({len(unmatched_elements)}件、P/L関連{len(pl_elements)}件): "
+              f"{', '.join(display)}"
+              + (f" ... 他{other_count}件" if other_count > 0 else ""))
 
     return financials
 

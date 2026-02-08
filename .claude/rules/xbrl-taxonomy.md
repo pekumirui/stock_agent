@@ -34,6 +34,8 @@ EDINET/TDnetのXBRL財務データパースでは、会計基準・業種ごと�
 | `OperatingRevenueSEC` | 証券業 |
 | `OperatingRevenueSPF` | 特定金融業 |
 | `OrdinaryIncomeBNK` | 銀行業（経常収益） |
+| `OrdinaryIncomeINS` | 保険業（経常収益） |
+| `OperatingIncomeINS` | 保険業（営業収益）※名前は紛らわしいが売上相当 |
 | `TotalOperatingRevenue` | 営業収益合計 |
 
 ### IFRS
@@ -48,6 +50,20 @@ EDINET/TDnetのXBRL財務データパースでは、会計基準・業種ごと�
 ### 有報 経営指標サマリー (jpcrp_cor)
 P/L本表とは別に、有報の「経営指標等の推移」セクションにも売上高が記載される。
 要素名は `*SummaryOfBusinessResults` サフィックス付き（例: `NetSalesSummaryOfBusinessResults`）。
+
+### IFRS有報サマリー (jpcrp_cor)
+
+IFRS採用企業の有報・半期報では、`*IFRSSummaryOfBusinessResults` サフィックス付き要素が使われる。
+**注意**: `jpcrp_cor` 名前空間に属するため、`XBRL_FACT_MAPPING`（日本基準側）に定義する。
+
+| 要素名 | マッピング先 |
+|---|---|
+| `RevenueIFRSSummaryOfBusinessResults` | revenue |
+| `OperatingProfitLossIFRSSummaryOfBusinessResults` | operating_income |
+| `ProfitLossBeforeTaxIFRSSummaryOfBusinessResults` | ordinary_income（税引前利益） |
+| `ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults` | net_income |
+| `BasicEarningsLossPerShareIFRSSummaryOfBusinessResults` | eps |
+| `DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults` | eps |
 
 ## 売上総利益の要素名
 
@@ -73,10 +89,22 @@ P/L本表とは別に、有報の「経営指標等の推移」セクション�
 2. 要素名のタクソノミ（jppfs_cor / ifrs-full等）を確認
 3. `XBRL_FACT_MAPPING`（日本基準）または `XBRL_FACT_MAPPING_IFRS`（IFRS）に追加
 4. `jpcrp_cor` 名前空間の要素は `XBRL_FACT_MAPPING` 側に追加すること（JPPFS_NAMESPACE_PATTERNSに含まれるため）
-5. `tests/test_fetch_financials.py` にテスト追加
+5. IFRS Summary要素（`*IFRSSummaryOfBusinessResults`）も `jpcrp_cor` なので `XBRL_FACT_MAPPING` 側に追加
+6. `tests/test_fetch_financials.py` にテスト追加
 
 ## 注意事項
 
 - IFRSには「経常利益」がない → `ProfitLossBeforeTax`（税引前利益）を `ordinary_income` にマッピング
 - 検索順序: `XBRL_FACT_MAPPING` → `XBRL_FACT_MAPPING_IFRS`（最初にマッチした値を優先）
 - コンテキスト判定: `CurrentYearDuration` / `InterimPeriodDuration` 等が当期データ、`Prior*` は前期
+
+## 構造的欠損（修正不要）
+
+以下のケースは業種・P/L構造上、該当フィールドが存在しないため None が正常:
+
+| 業種 | 欠損フィールド | 理由 |
+|---|---|---|
+| 銀行業 | gross_profit, operating_income | 銀行P/Lには売上原価・営業利益の概念がない |
+| 保険業 | gross_profit, operating_income | 保険P/Lは経常収益→経常利益の構造 |
+| 一部FG・持株会社 | gross_profit | 連結特有の勘定科目構成 |
+| プレ売上バイオ等 | revenue, gross_profit | 開発段階で売上なし |

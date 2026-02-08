@@ -100,6 +100,41 @@ class TestXbrlFactMapping:
         assert XBRL_FACT_MAPPING_IFRS['RevenueIFRS'] == 'revenue'
         assert XBRL_FACT_MAPPING_IFRS['OperatingRevenueIFRS'] == 'revenue'
 
+    def test_ifrs_jpigp_operating_income(self):
+        """jpigp_cor用IFRS営業利益が正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING_IFRS['OperatingProfitLossIFRS'] == 'operating_income'
+        assert XBRL_FACT_MAPPING_IFRS['ProfitLossBeforeTaxIFRS'] == 'ordinary_income'
+        assert XBRL_FACT_MAPPING_IFRS['ProfitLossAttributableToOwnersOfParentIFRS'] == 'net_income'
+
+    def test_ifrs_summary_operating_income(self):
+        """IFRS営業利益（有報/半期報サマリー）が正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING['OperatingProfitLossIFRSSummaryOfBusinessResults'] == 'operating_income'
+
+    def test_ifrs_summary_ordinary_income(self):
+        """IFRS税引前利益（有報/半期報サマリー）が経常利益としてマッピングされること"""
+        assert XBRL_FACT_MAPPING['ProfitLossBeforeTaxIFRSSummaryOfBusinessResults'] == 'ordinary_income'
+
+    def test_ifrs_summary_net_income(self):
+        """IFRS純利益（有報/半期報サマリー）が正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING['ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults'] == 'net_income'
+
+    def test_ifrs_summary_in_jppfs_mapping(self):
+        """IFRS Summary要素がXBRL_FACT_MAPPING側にあること（jpcrp_cor名前空間のため）"""
+        ifrs_summary_keys = [
+            'OperatingProfitLossIFRSSummaryOfBusinessResults',
+            'ProfitLossBeforeTaxIFRSSummaryOfBusinessResults',
+            'ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults',
+        ]
+        for key in ifrs_summary_keys:
+            assert key in XBRL_FACT_MAPPING, f"{key} should be in XBRL_FACT_MAPPING"
+            assert key not in XBRL_FACT_MAPPING_IFRS, f"{key} should NOT be in XBRL_FACT_MAPPING_IFRS"
+
+    def test_insurance_revenue(self):
+        """保険業の経常収益・営業収益が正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING['OrdinaryIncomeINS'] == 'revenue'
+        assert XBRL_FACT_MAPPING['OperatingIncomeINS'] == 'revenue'
+        assert XBRL_FACT_MAPPING['OrdinaryIncomeINSSummaryOfBusinessResults'] == 'revenue'
+
     def test_all_db_fields_covered(self):
         """全DBフィールドがマッピングに含まれること"""
         expected_fields = {'revenue', 'gross_profit', 'operating_income',
