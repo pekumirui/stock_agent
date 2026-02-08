@@ -10,13 +10,23 @@
 stock_agent/
 ├── db/
 │   ├── schema.sql          # DBスキーマ定義
-│   └── stock_agent.db      # SQLiteデータベース（自動生成）
+│   ├── stock_agent.db      # SQLiteデータベース（自動生成）
+│   ├── yoyo.ini            # マイグレーション設定
+│   └── migrations/         # DBマイグレーション
+├── lib/
+│   └── xbrlp/              # XBRLパーサーライブラリ
 ├── scripts/
 │   ├── db_utils.py         # DB操作ユーティリティ
 │   ├── init_companies.py   # 銘柄マスタ初期化
 │   ├── fetch_prices.py     # 株価取得（Yahoo Finance）
 │   ├── fetch_financials.py # 決算取得（EDINET）
+│   ├── fetch_tdnet.py      # 決算短信取得（TDnet）
+│   ├── update_edinet_codes.py  # EDINETコード一括更新
+│   ├── analyze_missing_edinet.py  # EDINETコード欠損分析
+│   ├── validate_schema.py  # スキーマ検証ツール
+│   ├── migrate.py          # DBマイグレーション管理
 │   └── run_daily_batch.py  # 日次バッチメイン
+├── tests/                  # テストコード
 ├── logs/                   # ログ出力用
 └── README.md
 ```
@@ -26,8 +36,7 @@ stock_agent/
 ### 1. 必要なパッケージをインストール
 
 ```bash
-pip install yfinance pandas requests openpyxl　xlrd
-python3 -m pip install yfinance pandas requests openpyxl xlrd
+pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations
 ```
 
 ### 2. 初回セットアップ（銘柄マスタ + サンプルデータ）
@@ -183,6 +192,36 @@ python3 scripts/migrate.py rollback
 - 初回のみ `migrate.py mark-baseline` でベースラインマークを適用
 - その後は `migrate.py apply` で未適用マイグレーションを自動検出・適用
 
+### EDINETコード欠損分析 (analyze_missing_edinet.py)
+
+EDINETコード未登録銘柄を分析し、カテゴリ分類・優先度判定を行います。
+
+```bash
+# 基本実行（CSV出力）
+python3 scripts/analyze_missing_edinet.py
+
+# 統計情報付き
+python3 scripts/analyze_missing_edinet.py --include-stats
+
+# サマリーのみ表示
+python3 scripts/analyze_missing_edinet.py --summary-only
+```
+
+### スキーマ検証 (validate_schema.py)
+
+yfinanceから株価データを取得し、スキーマ適合性を検証します。
+
+```bash
+# 全銘柄を検証
+python3 scripts/validate_schema.py
+
+# 特定銘柄のみ
+python3 scripts/validate_schema.py --ticker 7203
+
+# ドライラン（DB挿入なし）
+python3 scripts/validate_schema.py --dry-run
+```
+
 ## データベーススキーマ
 
 ### テーブル一覧
@@ -199,8 +238,12 @@ python3 scripts/migrate.py rollback
 
 ### 主なビュー
 
-- `v_latest_prices` - 各銘柄の最新株価
-- `v_latest_financials` - 各銘柄の最新決算
+| ビュー | 説明 |
+|--------|------|
+| v_latest_prices | 各銘柄の最新株価（銘柄情報付き） |
+| v_latest_financials | 各銘柄の最新決算（銘柄情報付き） |
+| v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
+| v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
 
 ## SQLiteでの確認
 
@@ -214,9 +257,36 @@ SELECT ticker_code, company_name, market_segment FROM companies LIMIT 10;
 SELECT * FROM v_latest_prices LIMIT 10;
 
 -- 決算データ
-SELECT ticker_code, fiscal_year, revenue, operating_income, net_income 
+SELECT ticker_code, fiscal_year, revenue, operating_income, net_income
 FROM financials ORDER BY announcement_date DESC LIMIT 10;
 ```
+
+## テスト
+
+```bash
+# 全テスト実行
+python3 -m pytest tests/ -v
+
+# カバレッジ付き
+python3 -m pytest tests/ -v --cov=scripts --cov-report=term-missing
+
+# 特定テストのみ
+python3 -m pytest tests/test_db_utils.py -v
+```
+
+### テストファイル一覧
+
+| テストファイル | テスト対象 |
+|--------------|-----------|
+| test_db_utils.py | DB操作ユーティリティ |
+| test_init_companies.py | 銘柄マスタ初期化 |
+| test_fetch_prices.py | 株価取得（実API統合テスト） |
+| test_fetch_financials.py | 決算取得 |
+| test_fetch_tdnet.py | TDnet取得 |
+| test_update_edinet_codes.py | EDINETコード更新 |
+| test_analyze_missing_edinet.py | EDINETコード欠損分析 |
+| test_financial_views.py | YoY/QoQビュー |
+| test_migrations.py | マイグレーション |
 
 ## 注意事項
 
