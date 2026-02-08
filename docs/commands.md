@@ -43,12 +43,25 @@ python scripts/run_daily_batch.py
 ## テスト
 
 ```bash
-# 全テスト実行（Anaconda Python使用）
-C:/Users/pekum/anaconda3/python.exe -m pytest tests/ -v
+# 全テスト実行
+python3 -m pytest tests/ -v
 
 # カバレッジ付き
-C:/Users/pekum/anaconda3/python.exe -m pytest tests/ -v --cov=scripts --cov-report=term-missing
+python3 -m pytest tests/ -v --cov=scripts --cov-report=term-missing
 
 # 特定テストのみ
-C:/Users/pekum/anaconda3/python.exe -m pytest tests/test_db_utils.py -v
+python3 -m pytest tests/test_db_utils.py -v
+```
+
+## データ品質管理
+
+```bash
+# EDINETコード欠損分析
+python3 scripts/analyze_missing_edinet.py --include-stats
+
+# スキーマ検証
+python3 scripts/validate_schema.py
+
+# スキーマ検証（特定銘柄）
+python3 scripts/validate_schema.py --ticker 7203
 ```
