@@ -169,26 +169,60 @@ def upsert_company(ticker_code: str, company_name: str, **kwargs):
 def insert_daily_price(ticker_code: str, trade_date: str, open_price: float,
                        high_price: float, low_price: float, close_price: float,
                        volume: int, adjusted_close: float = None):
-    """日次株価を挿入（重複時は無視）"""
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT OR IGNORE INTO daily_prices 
-            (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close))
-        conn.commit()
+    """
+    日次株価を挿入（重複時は無視）
+
+    【NEW】IntegrityError ハンドリング追加
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO daily_prices
+                (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close))
+            conn.commit()
+    except sqlite3.IntegrityError:
+        # スキップ（ログ出力なし、正常な除外として扱う）
+        pass
 
 
 def bulk_insert_prices(prices: list):
-    """株価を一括挿入"""
+    """
+    株価を一括挿入（JPXリスト外の銘柄はスキップ）
+
+    【NEW】IntegrityError ハンドリング追加
+
+    Returns:
+        int: 挿入成功した件数
+    """
+    if not prices:
+        return 0
+
+    inserted_count = 0
+    skipped_tickers = set()
+
     with get_connection() as conn:
-        conn.executemany("""
-            INSERT OR IGNORE INTO daily_prices 
-            (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, prices)
+        for price_data in prices:
+            ticker_code = price_data[0]
+            try:
+                cursor = conn.execute("""
+                    INSERT OR IGNORE INTO daily_prices
+                    (ticker_code, trade_date, open_price, high_price, low_price, close_price, volume, adjusted_close)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, price_data)
+                if cursor.rowcount > 0:
+                    inserted_count += 1
+            except sqlite3.IntegrityError:
+                if ticker_code not in skipped_tickers:
+                    skipped_tickers.add(ticker_code)
+
         conn.commit()
-        return conn.total_changes
+
+    if skipped_tickers:
+        print(f"    [INFO] JPXリスト外のためスキップ: {sorted(skipped_tickers)}")
+
+    return inserted_count
 
 
 def insert_stock_split(ticker_code: str, split_date: str, ratio_from: float, ratio_to: float):
@@ -210,26 +244,33 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
     - source='EDINET': 常に保存（正式版優先）
     - source='TDnet': 既存が EDINET の場合はスキップ
 
+    【NEW】未登録銘柄チェック追加（JPXリスト外の銘柄を除外）
+
     Returns:
         bool: 保存した場合 True、スキップした場合 False
     """
+    # 【NEW】事前チェック（JPXリスト外の銘柄を除外）
+    if not ticker_exists(ticker_code):
+        return False
+
     source = kwargs.get('source')
 
-    with get_connection() as conn:
-        # 既存データの source を確認
-        cursor = conn.execute("""
-            SELECT source FROM financials
-            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-        """, (ticker_code, fiscal_year, fiscal_quarter))
-        existing = cursor.fetchone()
+    try:
+        with get_connection() as conn:
+            # 既存データの source を確認
+            cursor = conn.execute("""
+                SELECT source FROM financials
+                WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+            """, (ticker_code, fiscal_year, fiscal_quarter))
+            existing = cursor.fetchone()
 
-        # スキップ判定: TDnet データで既存が EDINET
-        if existing and existing['source'] == 'EDINET' and source == 'TDnet':
-            print(f"    [SKIP] EDINETデータ存在のためスキップ: {ticker_code} {fiscal_year} {fiscal_quarter}")
-            return False
+            # スキップ判定: TDnet データで既存が EDINET
+            if existing and existing['source'] == 'EDINET' and source == 'TDnet':
+                print(f"    [SKIP] EDINETデータ存在のためスキップ: {ticker_code} {fiscal_year} {fiscal_quarter}")
+                return False
 
-        # 通常の INSERT/UPDATE 処理
-        conn.execute("""
+            # 通常の INSERT/UPDATE 処理
+            conn.execute("""
             INSERT INTO financials
             (ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date, announcement_date,
              revenue, gross_profit, operating_income, ordinary_income, net_income, eps,
@@ -263,9 +304,13 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             source,
             kwargs.get('edinet_doc_id'),
             kwargs.get('pdf_path')
-        ))
-        conn.commit()
-        return True
+            ))
+            conn.commit()
+            return True
+    except sqlite3.IntegrityError as e:
+        # 【NEW】フォールバック（事前チェックをすり抜けた場合）
+        print(f"    [ERROR] FOREIGN KEY制約違反: {ticker_code} - {e}")
+        return False
 
 
 def get_financials_yoy(ticker_code: str = None) -> list:
@@ -346,6 +391,33 @@ def is_valid_ticker_code(ticker_code: str) -> bool:
         return ticker_clean[:4].isdigit() and ticker_clean[4].isalpha()
 
     return False
+
+
+def ticker_exists(ticker_code: str) -> bool:
+    """
+    証券コードがcompaniesテーブルに存在するか確認
+
+    JPXリスト（東証銘柄）に登録されているかをチェックします。
+    名証M、札証、福証など地方市場の銘柄は False を返します。
+
+    Args:
+        ticker_code: 証券コード
+
+    Returns:
+        bool: companiesテーブルに存在する場合 True
+
+    Examples:
+        >>> ticker_exists("7203")  # トヨタ（東証）
+        True
+        >>> ticker_exists("6655")  # 洋電機（名証M）
+        False
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT 1 FROM companies WHERE ticker_code = ? LIMIT 1",
+            (ticker_code,)
+        )
+        return cursor.fetchone() is not None
 
 
 if __name__ == "__main__":

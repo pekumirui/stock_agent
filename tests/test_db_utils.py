@@ -8,7 +8,7 @@ from pathlib import Path
 # scriptsディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from db_utils import get_connection, init_database, get_all_tickers, is_valid_ticker_code
+from db_utils import get_connection, init_database, get_all_tickers, is_valid_ticker_code, insert_financial
 
 
 class TestDatabaseConnection:
@@ -131,3 +131,116 @@ class TestTickerValidation:
         assert is_valid_ticker_code(" 7203 ") is True
         assert is_valid_ticker_code(" 285A ") is True
         assert is_valid_ticker_code("   ") is False
+
+
+class TestTickerExistence:
+    """ticker_exists() のテスト"""
+
+    def test_ticker_exists_true(self, sample_company):
+        """登録済み銘柄は True を返す"""
+        from db_utils import ticker_exists
+        assert ticker_exists("9999") is True
+
+    def test_ticker_exists_false(self, test_db):
+        """JPXリスト外の銘柄は False を返す"""
+        from db_utils import ticker_exists
+        assert ticker_exists("6655") is False
+
+    def test_ticker_exists_empty_string(self, test_db):
+        """空文字列は False を返す"""
+        from db_utils import ticker_exists
+        assert ticker_exists("") is False
+
+
+class TestInsertFinancialWithOutOfScopeTicker:
+    """JPXリスト外の銘柄に対する insert_financial() のテスト"""
+
+    def test_insert_financial_out_of_scope_ticker(self, test_db):
+        """JPXリスト外の銘柄は False を返し、データは挿入されない"""
+        result = insert_financial(
+            ticker_code='6655',  # 名証M銘柄
+            fiscal_year='2024',
+            fiscal_quarter='Q1',
+            revenue=100.0,
+            source='TDnet'
+        )
+        assert result is False
+
+        # DBに保存されていないことを確認
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) as cnt FROM financials WHERE ticker_code='6655'"
+            )
+            row = cursor.fetchone()
+            assert row['cnt'] == 0
+
+    def test_insert_financial_registered_ticker(self, sample_company):
+        """登録済み銘柄は True を返し、データが挿入される"""
+        result = insert_financial(
+            ticker_code='9999',  # 登録済み
+            fiscal_year='2024',
+            fiscal_quarter='Q1',
+            revenue=100.0,
+            source='TDnet'
+        )
+        assert result is True
+
+        # DBに保存されていることを確認
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT revenue FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            assert row['revenue'] == 100.0
+
+
+class TestBulkInsertPricesWithOutOfScopeTicker:
+    """JPXリスト外の銘柄に対する bulk_insert_prices() のテスト"""
+
+    def test_bulk_insert_prices_mixed(self, sample_company):
+        """JPXリスト内外が混在する場合、JPXリスト内のみ挿入される"""
+        from db_utils import bulk_insert_prices, get_connection
+
+        test_date = '2099-12-31'  # 未来の日付（実データと重複しない）
+        prices = [
+            ('9999', test_date, 1000.0, 1050.0, 980.0, 990.0, 100000, 1000.0),  # JPXリスト内
+            ('6655', test_date, 2000.0, 2050.0, 1980.0, 1990.0, 200000, 2000.0),  # JPXリスト外
+        ]
+
+        inserted = bulk_insert_prices(prices)
+
+        # 1件のみ挿入されたことを確認
+        assert inserted == 1
+
+        # DBに9999のみ存在することを確認
+        with get_connection() as conn:
+            cursor = conn.execute(
+                f"SELECT ticker_code FROM daily_prices WHERE trade_date = '{test_date}' ORDER BY ticker_code"
+            )
+            rows = cursor.fetchall()
+            ticker_codes = [row['ticker_code'] for row in rows]
+            assert len(ticker_codes) == 1, f"Expected 1, but got {len(ticker_codes)}: {ticker_codes}"
+            assert ticker_codes[0] == '9999'
+
+    def test_bulk_insert_prices_all_out_of_scope(self, test_db):
+        """全てJPXリスト外の場合、0件挿入される"""
+        from db_utils import bulk_insert_prices
+
+        test_date = '2099-12-30'  # 未来の日付（実データと重複しない）
+        prices = [
+            ('6655', test_date, 2000.0, 2050.0, 1980.0, 1990.0, 200000, 2000.0),  # 名証M銘柄（未登録）
+            ('1111', test_date, 3000.0, 3050.0, 2980.0, 2990.0, 300000, 3000.0),  # 架空の銘柄（未登録）
+        ]
+
+        inserted = bulk_insert_prices(prices)
+
+        # 0件挿入
+        assert inserted == 0
+
+    def test_bulk_insert_prices_empty(self, test_db):
+        """空リストの場合、0件挿入される"""
+        from db_utils import bulk_insert_prices
+
+        inserted = bulk_insert_prices([])
+        assert inserted == 0
