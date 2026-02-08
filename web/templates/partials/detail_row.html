@@ -1,0 +1,115 @@
+{% macro fmt_value(val) %}
+    {% if val is not none %}
+        {% if val >= 1000000 %}{{ '{:,.0f}'.format(val / 1000) }}千{% elif val >= 1000 %}{{ '{:,.0f}'.format(val) }}{% else %}{{ '{:,.1f}'.format(val) }}{% endif %}
+    {% else %}-{% endif %}
+{% endmacro %}
+
+{% macro fmt_pct(val) %}
+    {% if val is not none %}
+        <span class="{{ 'positive' if val > 0 else 'negative' if val < 0 else '' }}">{{ '{:+.1f}'.format(val) }}%</span>
+    {% else %}-{% endif %}
+{% endmacro %}
+
+<div class="detail-container">
+    <div class="detail-title">{{ detail.ticker_code }} - 詳細情報
+        {% if detail.get('fiscal_year') %}({{ detail.fiscal_year }}{% if detail.get('fiscal_quarter') %} {{ detail.fiscal_quarter }}{% endif %}){% endif %}
+    </div>
+
+    {% if detail.cumulative %}
+    <table class="detail-table">
+        <caption>累計実績（前年同期比）</caption>
+        <thead>
+            <tr>
+                <th></th>
+                <th>売上高</th>
+                <th>売上総利益</th>
+                <th>営業利益</th>
+                <th>経常利益</th>
+                <th>純利益</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="row-label">当期</td>
+                <td>{{ fmt_value(detail.cumulative.revenue) }}</td>
+                <td>{{ fmt_value(detail.cumulative.gross_profit) }}</td>
+                <td>{{ fmt_value(detail.cumulative.operating_income) }}</td>
+                <td>{{ fmt_value(detail.cumulative.ordinary_income) }}</td>
+                <td>{{ fmt_value(detail.cumulative.net_income) }}</td>
+            </tr>
+            <tr>
+                <td class="row-label">前年同期</td>
+                <td>{{ fmt_value(detail.cumulative.revenue_prev) }}</td>
+                <td>{{ fmt_value(detail.cumulative.gross_profit_prev) }}</td>
+                <td>{{ fmt_value(detail.cumulative.operating_income_prev) }}</td>
+                <td>{{ fmt_value(detail.cumulative.ordinary_income_prev) }}</td>
+                <td>{{ fmt_value(detail.cumulative.net_income_prev) }}</td>
+            </tr>
+            <tr>
+                <td class="row-label">増減率</td>
+                <td>{{ fmt_pct(detail.cumulative.revenue_pct) }}</td>
+                <td>{{ fmt_pct(detail.cumulative.gross_profit_pct) }}</td>
+                <td>{{ fmt_pct(detail.cumulative.operating_income_pct) }}</td>
+                <td>{{ fmt_pct(detail.cumulative.ordinary_income_pct) }}</td>
+                <td>{{ fmt_pct(detail.cumulative.net_income_pct) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% else %}
+    <p class="detail-empty">累計実績データなし</p>
+    {% endif %}
+
+    {% if detail.forecast %}
+    <table class="detail-table">
+        <caption>会社予想（最新）</caption>
+        <thead>
+            <tr>
+                <th></th>
+                <th>売上高</th>
+                <th>営業利益</th>
+                <th>経常利益</th>
+                <th>純利益</th>
+                <th>配当</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="row-label">予想</td>
+                <td>{{ fmt_value(detail.forecast.get('revenue')) }}</td>
+                <td>{{ fmt_value(detail.forecast.get('operating_income')) }}</td>
+                <td>{{ fmt_value(detail.forecast.get('ordinary_income')) }}</td>
+                <td>{{ fmt_value(detail.forecast.get('net_income')) }}</td>
+                <td>{% if detail.forecast.get('dividend_per_share') is not none %}{{ '{:.2f}'.format(detail.forecast.dividend_per_share) }}円{% else %}-{% endif %}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if detail.initial_forecast %}
+    <table class="detail-table">
+        <caption>期初予想</caption>
+        <thead>
+            <tr>
+                <th></th>
+                <th>売上高</th>
+                <th>営業利益</th>
+                <th>経常利益</th>
+                <th>純利益</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="row-label">期初</td>
+                <td>{{ fmt_value(detail.initial_forecast.get('revenue')) }}</td>
+                <td>{{ fmt_value(detail.initial_forecast.get('operating_income')) }}</td>
+                <td>{{ fmt_value(detail.initial_forecast.get('ordinary_income')) }}</td>
+                <td>{{ fmt_value(detail.initial_forecast.get('net_income')) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if not detail.cumulative and not detail.forecast and not detail.initial_forecast %}
+    <p class="detail-empty">詳細データがありません</p>
+    {% endif %}
+</div>

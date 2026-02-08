@@ -1,0 +1,89 @@
+{% for row in rows %}
+<tr class="data-row"
+    data-ticker="{{ row.ticker_code }}"
+    data-type="{{ row.announcement_type }}">
+    <td class="col-toggle">
+        <button class="toggle-btn"
+                hx-get="/viewer/detail/{{ row.ticker_code }}/{{ target_date }}"
+                hx-target="next tr.detail-row"
+                hx-swap="innerHTML"
+                onclick="toggleDetail(this)">&#9654;</button>
+    </td>
+    <td class="col-time">{{ row.announcement_time }}</td>
+    <td class="col-ticker">{{ row.ticker_code }}</td>
+    <td class="col-name" title="{{ row.company_name }}">{{ row.company_name }}</td>
+    <td class="col-type">
+        {% if row.announcement_type == 'earnings' %}
+            <span class="badge badge-earnings">決算</span>
+        {% elif row.announcement_type == 'revision' %}
+            <span class="badge badge-revision">修正</span>
+        {% elif row.announcement_type == 'dividend' %}
+            <span class="badge badge-dividend">配当</span>
+        {% else %}
+            <span class="badge badge-other">他</span>
+        {% endif %}
+    </td>
+    <td class="col-period">
+        {% if row.fiscal_quarter == 'FY' %}通期
+        {% elif row.fiscal_quarter == 'Q1' %}1Q
+        {% elif row.fiscal_quarter == 'Q2' %}2Q
+        {% elif row.fiscal_quarter == 'Q3' %}3Q
+        {% elif row.fiscal_quarter == 'Q4' %}4Q
+        {% else %}{{ row.fiscal_quarter or '' }}
+        {% endif %}
+    </td>
+    <!-- QoQ 5列 -->
+    <td class="col-num section-start {{ 'positive' if row.revenue_qoq is not none and row.revenue_qoq > 0 else 'negative' if row.revenue_qoq is not none and row.revenue_qoq < 0 else '' }}">
+        {% if row.revenue_qoq is not none %}{{ '{:+.1f}'.format(row.revenue_qoq) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.gross_profit_qoq is not none and row.gross_profit_qoq > 0 else 'negative' if row.gross_profit_qoq is not none and row.gross_profit_qoq < 0 else '' }}">
+        {% if row.gross_profit_qoq is not none %}{{ '{:+.1f}'.format(row.gross_profit_qoq) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.operating_income_qoq is not none and row.operating_income_qoq > 0 else 'negative' if row.operating_income_qoq is not none and row.operating_income_qoq < 0 else '' }}">
+        {% if row.operating_income_qoq is not none %}{{ '{:+.1f}'.format(row.operating_income_qoq) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.ordinary_income_qoq is not none and row.ordinary_income_qoq > 0 else 'negative' if row.ordinary_income_qoq is not none and row.ordinary_income_qoq < 0 else '' }}">
+        {% if row.ordinary_income_qoq is not none %}{{ '{:+.1f}'.format(row.ordinary_income_qoq) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.net_income_qoq is not none and row.net_income_qoq > 0 else 'negative' if row.net_income_qoq is not none and row.net_income_qoq < 0 else '' }}">
+        {% if row.net_income_qoq is not none %}{{ '{:+.1f}'.format(row.net_income_qoq) }}%{% endif %}
+    </td>
+    <!-- YoY 4列 -->
+    <td class="col-num section-start {{ 'positive' if row.revenue_yoy is not none and row.revenue_yoy > 0 else 'negative' if row.revenue_yoy is not none and row.revenue_yoy < 0 else '' }}">
+        {% if row.revenue_yoy is not none %}{{ '{:+.1f}'.format(row.revenue_yoy) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.operating_income_yoy is not none and row.operating_income_yoy > 0 else 'negative' if row.operating_income_yoy is not none and row.operating_income_yoy < 0 else '' }}">
+        {% if row.operating_income_yoy is not none %}{{ '{:+.1f}'.format(row.operating_income_yoy) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.ordinary_income_yoy is not none and row.ordinary_income_yoy > 0 else 'negative' if row.ordinary_income_yoy is not none and row.ordinary_income_yoy < 0 else '' }}">
+        {% if row.ordinary_income_yoy is not none %}{{ '{:+.1f}'.format(row.ordinary_income_yoy) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.net_income_yoy is not none and row.net_income_yoy > 0 else 'negative' if row.net_income_yoy is not none and row.net_income_yoy < 0 else '' }}">
+        {% if row.net_income_yoy is not none %}{{ '{:+.1f}'.format(row.net_income_yoy) }}%{% endif %}
+    </td>
+    <!-- Con 4列 -->
+    <td class="col-num section-start {{ 'positive' if row.revenue_con is not none and row.revenue_con > 0 else 'negative' if row.revenue_con is not none and row.revenue_con < 0 else '' }}">
+        {% if row.revenue_con is not none %}{{ '{:+.1f}'.format(row.revenue_con) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.operating_income_con is not none and row.operating_income_con > 0 else 'negative' if row.operating_income_con is not none and row.operating_income_con < 0 else '' }}">
+        {% if row.operating_income_con is not none %}{{ '{:+.1f}'.format(row.operating_income_con) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.ordinary_income_con is not none and row.ordinary_income_con > 0 else 'negative' if row.ordinary_income_con is not none and row.ordinary_income_con < 0 else '' }}">
+        {% if row.ordinary_income_con is not none %}{{ '{:+.1f}'.format(row.ordinary_income_con) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.net_income_con is not none and row.net_income_con > 0 else 'negative' if row.net_income_con is not none and row.net_income_con < 0 else '' }}">
+        {% if row.net_income_con is not none %}{{ '{:+.1f}'.format(row.net_income_con) }}%{% endif %}
+    </td>
+    <!-- 情報 -->
+    <td class="col-info">{{ row.dividend_info or '' }}</td>
+</tr>
+<tr class="detail-row" style="display:none;">
+    <td colspan="20"></td>
+</tr>
+{% endfor %}
+
+{% if not rows %}
+<tr>
+    <td colspan="20" class="no-data">この日付の決算発表データはありません</td>
+</tr>
+{% endif %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}決算分析リアルタイムビューア{% endblock %}
+
+{% block content %}
+<div x-data="viewerApp()" class="viewer-container">
+    <!-- ヘッダー -->
+    <header class="viewer-header">
+        <div class="header-left">
+            <h1 class="header-title">決算分析リアルタイムビューア</h1>
+        </div>
+        <div class="header-right">
+            <label class="date-label" for="date-picker">日付:</label>
+            <input type="date" id="date-picker"
+                   x-model="targetDate"
+                   @change="refreshTable()"
+                   class="date-picker"
+                   value="{{ target_date }}">
+            <span class="record-count" x-text="'(' + rowCount + '件)'"></span>
+        </div>
+    </header>
+
+    <!-- フィルタバー -->
+    <div class="filter-bar">
+        <div class="filter-checks">
+            <label class="filter-label">
+                <input type="checkbox" x-model="filters.earnings" @change="refreshTable()" checked>
+                <span class="filter-tag tag-earnings">決算短信</span>
+            </label>
+            <label class="filter-label">
+                <input type="checkbox" x-model="filters.revision" @change="refreshTable()" checked>
+                <span class="filter-tag tag-revision">業績修正</span>
+            </label>
+            <label class="filter-label">
+                <input type="checkbox" x-model="filters.dividend" @change="refreshTable()" checked>
+                <span class="filter-tag tag-dividend">配当修正</span>
+            </label>
+            <label class="filter-label">
+                <input type="checkbox" x-model="filters.other" @change="refreshTable()" checked>
+                <span class="filter-tag tag-other">その他</span>
+            </label>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-sm" @click="expandAll()">全展開</button>
+            <button class="btn btn-sm" @click="collapseAll()">全折畳</button>
+        </div>
+    </div>
+
+    <!-- テーブル -->
+    <div class="table-wrapper">
+        <table class="viewer-table">
+            <thead>
+                <tr>
+                    <th class="col-toggle"></th>
+                    <th class="col-time">時刻</th>
+                    <th class="col-ticker">コード</th>
+                    <th class="col-name">企業名</th>
+                    <th class="col-type">種別</th>
+                    <th class="col-period">期</th>
+                    <!-- QoQ 5列 -->
+                    <th class="col-num section-start" title="売上高 前年同期比(単独四半期)">売上QoQ</th>
+                    <th class="col-num" title="売上総利益 前年同期比(単独四半期)">粗利QoQ</th>
+                    <th class="col-num" title="営業利益 前年同期比(単独四半期)">営利QoQ</th>
+                    <th class="col-num" title="経常利益 前年同期比(単独四半期)">経利QoQ</th>
+                    <th class="col-num" title="純利益 前年同期比(単独四半期)">純利QoQ</th>
+                    <!-- YoY 4列 -->
+                    <th class="col-num section-start" title="売上高 前年同期比(累計)">売上YoY</th>
+                    <th class="col-num" title="営業利益 前年同期比(累計)">営利YoY</th>
+                    <th class="col-num" title="経常利益 前年同期比(累計)">経利YoY</th>
+                    <th class="col-num" title="純利益 前年同期比(累計)">純利YoY</th>
+                    <!-- Con 4列 -->
+                    <th class="col-num section-start" title="売上高 コンセンサス比">売上Con</th>
+                    <th class="col-num" title="営業利益 コンセンサス比">営利Con</th>
+                    <th class="col-num" title="経常利益 コンセンサス比">経利Con</th>
+                    <th class="col-num" title="純利益 コンセンサス比">純利Con</th>
+                    <!-- 情報 -->
+                    <th class="col-info">情報</th>
+                </tr>
+            </thead>
+            <tbody id="table-body"
+                   hx-get="/viewer/table"
+                   hx-trigger="load"
+                   hx-vals='js:{date: document.getElementById("date-picker").value}'
+                   hx-swap="innerHTML">
+                {% include "partials/table_body.html" %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/viewer.js"></script>
+{% endblock %}
