@@ -4,7 +4,7 @@
 
 日本株の株価・決算データを収集・蓄積するバッチシステム。
 
-詳細なガイドラインは `.claude/rules/` を参照:
+詳細なガイドラインは `.claude/rules/` を参照
 ## 現在の状態
 
 ### 完了
@@ -21,12 +21,11 @@
 - [x] EDINETコード一括更新スクリプト（`scripts/update_edinet_codes.py`）- ドキュメントリストAPIから収集
 - [x] **EDINETコード更新の効率化**（`scripts/update_edinet_codes.py`）- 未登録銘柄のみを対象に事前フィルタリング
 - [x] 実API統合テスト導入（`tests/test_fetch_prices.py`）- Yahoo Finance APIを実際に叩いてテスト
-- [x] テスト進捗管理（`.claude/test_progress.md`）- カバレッジ推移・テストケース一覧の可視化
-
-### テスト進捗管理
-- `.claude/test_progress.md` でカバレッジ推移・テストケース一覧を可視化
-- 現在の総カバレッジ: **推定47%**（fetch_prices.py 完了により改善）
-
+- [x] EDINETコード欠損分析スクリプト（`scripts/analyze_missing_edinet.py`）- カテゴリ分類・優先度判定・CSV出力
+- [x] スキーマ検証ツール（`scripts/validate_schema.py`）- yfinanceデータでスキーマ適合性検証
+- [x] IFRS/US-GAAP企業のP/L検出パターン修正（`scripts/fetch_tdnet.py`）- 全会計基準対応
+- [x] DB操作ロジック改善（`scripts/db_utils.py`）- ticker_exists()追加、FOREIGN KEY違反の事前チェック
+- [x] 包括的テストスイート（`tests/`）- 9テストファイル、実API統合テスト採用
 
 ## 次のタスク（優先順）
 
