@@ -65,6 +65,22 @@ IFRS採用企業の有報・半期報では、`*IFRSSummaryOfBusinessResults` �
 | `BasicEarningsLossPerShareIFRSSummaryOfBusinessResults` | eps |
 | `DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults` | eps |
 
+### US-GAAP有報サマリー (jpcrp_cor)
+
+US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有報・半期報では、`*USGAAPSummaryOfBusinessResults` サフィックス付き要素が使われる。
+**注意**: `jpcrp_cor` 名前空間に属するため、`XBRL_FACT_MAPPING`（日本基準側）に定義する。
+
+| 要素名 | マッピング先 |
+|---|---|
+| `RevenuesUSGAAPSummaryOfBusinessResults` | revenue |
+| `ProfitLossBeforeTaxUSGAAPSummaryOfBusinessResults` | ordinary_income（税引前利益） |
+| `NetIncomeLossAttributableToOwnersOfParentUSGAAPSummaryOfBusinessResults` | net_income |
+| `BasicEarningsLossPerShareUSGAAPSummaryOfBusinessResults` | eps |
+| `DilutedEarningsLossPerShareUSGAAPSummaryOfBusinessResults` | eps |
+
+**制限**: US-GAAPサマリーには gross_profit, operating_income の要素が含まれない。
+半期報告書のXBRLにはUS-GAAP P/L名前空間（`jpus_cor`等）が含まれないため、これらは取得不可。
+
 ## 売上総利益の要素名
 
 ### 日本基準 (jppfs_cor)
@@ -90,7 +106,8 @@ IFRS採用企業の有報・半期報では、`*IFRSSummaryOfBusinessResults` �
 3. `XBRL_FACT_MAPPING`（日本基準）または `XBRL_FACT_MAPPING_IFRS`（IFRS）に追加
 4. `jpcrp_cor` 名前空間の要素は `XBRL_FACT_MAPPING` 側に追加すること（JPPFS_NAMESPACE_PATTERNSに含まれるため）
 5. IFRS Summary要素（`*IFRSSummaryOfBusinessResults`）も `jpcrp_cor` なので `XBRL_FACT_MAPPING` 側に追加
-6. `tests/test_fetch_financials.py` にテスト追加
+6. US-GAAP Summary要素（`*USGAAPSummaryOfBusinessResults`）も同様に `XBRL_FACT_MAPPING` 側に追加
+7. `tests/test_fetch_financials.py` にテスト追加
 
 ## 注意事項
 
@@ -102,9 +119,14 @@ IFRS採用企業の有報・半期報では、`*IFRSSummaryOfBusinessResults` �
 
 以下のケースは業種・P/L構造上、該当フィールドが存在しないため None が正常:
 
-| 業種 | 欠損フィールド | 理由 |
+| 業種/パターン | 欠損フィールド | 理由 |
 |---|---|---|
 | 銀行業 | gross_profit, operating_income | 銀行P/Lには売上原価・営業利益の概念がない |
 | 保険業 | gross_profit, operating_income | 保険P/Lは経常収益→経常利益の構造 |
 | 一部FG・持株会社 | gross_profit | 連結特有の勘定科目構成 |
 | プレ売上バイオ等 | revenue, gross_profit | 開発段階で売上なし |
+| US-GAAP企業（半期報） | gross_profit, operating_income | サマリーに要素なし、P/L名前空間未タグ付け |
+| IT/サービス企業 | gross_profit | 販管費一括表示P/L（売上原価の概念なし） |
+| 広告代理店等 | revenue | 純額表示（2021年収益認識基準適用後） |
+| 一部IFRS企業（半期報） | gross_profit | IFRS P/Lで Revenue→Operating Profit の簡略フォーマット |
+| 商社等(IFRS) | operating_income | IFRSでは営業利益の開示が任意 |
