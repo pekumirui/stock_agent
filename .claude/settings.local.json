@@ -21,7 +21,14 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: 開発効率化のためClaude設定とスキル定義を更新\n\n変更内容:\n- settings.local.json: PR作成・データ集計コマンドの自動許可追加\n- pr.md: マージ済みブランチ削除手順を追記\n- test-workflow.md: 使用されていない統合テストワークフロースキルを削除\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)",
+      "Bash(git branch:*)",
+      "Bash(venv/bin/python:*)",
+      "Bash(../venv/bin/python:*)",
+      "WebFetch(domain:investment.abbamboo.com)"
     ]
   }
 }

@@ -37,7 +37,8 @@ from xbrlp import Parser, Fact, QName, FileLoader
 
 from db_utils import (
     get_connection, get_all_tickers, insert_financial,
-    log_batch_start, log_batch_end
+    log_batch_start, log_batch_end,
+    get_edinet_ticker_map, get_processed_doc_ids
 )
 
 
@@ -60,8 +61,34 @@ XBRL_FACT_MAPPING = {
     'NetSales': 'revenue',
     'Revenue': 'revenue',
     'OperatingRevenue': 'revenue',
+    # 売上高（業種別バリエーション - jppfs_cor）
+    'OperatingRevenue1': 'revenue',                              # 鉄道・バス・不動産・通信
+    'OperatingRevenue2': 'revenue',                              # 保険業
+    'NetSalesOfCompletedConstructionContracts': 'revenue',       # 建設業
+    'NetSalesOfCompletedConstructionContractsCNS': 'revenue',    # 建設業（連結）
+    'NetSalesAndOperatingRevenue': 'revenue',                    # 電力・ガス等
+    'NetSalesAndOperatingRevenue2': 'revenue',                   # 一部特殊業種
+    'BusinessRevenue': 'revenue',                                # 商社・サービス
+    'OperatingRevenueELE': 'revenue',                            # 電力業
+    'ShippingBusinessRevenueWAT': 'revenue',                     # 海運業
+    'OperatingRevenueSEC': 'revenue',                            # 証券業
+    'OperatingRevenueSPF': 'revenue',                            # 特定金融業
+    'OrdinaryIncomeBNK': 'revenue',                              # 銀行業（経常収益）
+    'TotalOperatingRevenue': 'revenue',                          # 営業収益合計
+    # 売上高（有価証券報告書 経営指標サマリー - jpcrp_cor）
+    'NetSalesSummaryOfBusinessResults': 'revenue',
+    'OperatingRevenue1SummaryOfBusinessResults': 'revenue',
+    'OperatingRevenue2SummaryOfBusinessResults': 'revenue',
+    'NetSalesOfCompletedConstructionContractsSummaryOfBusinessResults': 'revenue',
+    'NetSalesAndOperatingRevenueSummaryOfBusinessResults': 'revenue',
+    'BusinessRevenueSummaryOfBusinessResults': 'revenue',
+    'OrdinaryIncomeBNKSummaryOfBusinessResults': 'revenue',
+    'RevenueIFRSSummaryOfBusinessResults': 'revenue',            # IFRS企業の有報
+    'RevenuesUSGAAPSummaryOfBusinessResults': 'revenue',         # US-GAAP企業の有報
     # 売上総利益
     'GrossProfit': 'gross_profit',
+    'GrossProfitOnCompletedConstructionContracts': 'gross_profit',    # 建設業
+    'GrossProfitOnCompletedConstructionContractsCNS': 'gross_profit', # 建設業（連結）
     # 営業利益
     'OperatingIncome': 'operating_income',
     'OperatingProfit': 'operating_income',
@@ -75,6 +102,8 @@ XBRL_FACT_MAPPING = {
     # EPS
     'BasicEarningsLossPerShare': 'eps',
     'EarningsPerShare': 'eps',
+    'BasicEarningsLossPerShareSummaryOfBusinessResults': 'eps',  # EDINET有報・半期報
+    'DilutedEarningsPerShareSummaryOfBusinessResults': 'eps',    # EDINET有報・半期報（希薄化後）
 }
 
 # IFRS用マッピング（IFRS採用企業向け）
@@ -82,6 +111,12 @@ XBRL_FACT_MAPPING_IFRS = {
     # 売上高
     'Revenue': 'revenue',
     'SalesIFRS': 'revenue',  # TDnet用
+    'RevenueFromContractsWithCustomers': 'revenue',   # IFRS 15（顧客との契約から生じる収益）
+    'RevenueIFRS': 'revenue',                         # EDINET IFRS対応
+    'Revenue2IFRS': 'revenue',                         # 一部IFRS企業
+    'NetSalesAndOperatingRevenueIFRS': 'revenue',      # IFRS営業収益
+    'OperatingRevenueIFRS': 'revenue',                 # IFRS営業収益
+    'TotalNetRevenuesIFRS': 'revenue',                 # IFRS合計収益
     # 売上総利益
     'GrossProfit': 'gross_profit',
     'GrossProfitIFRS': 'gross_profit',  # jpigp_cor用（Attachment）
@@ -100,6 +135,9 @@ XBRL_FACT_MAPPING_IFRS = {
     'BasicEarningsLossPerShare': 'eps',
     'DilutedEarningsLossPerShare': 'eps',
     'BasicEarningsPerShareIFRS': 'eps',  # TDnet用
+    'BasicEarningsLossPerShareIFRS': 'eps',  # EDINET jpigp_cor用
+    'BasicEarningsLossPerShareIFRSSummaryOfBusinessResults': 'eps',    # EDINET有報
+    'DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults': 'eps',  # EDINET有報（希薄化後）
 }
 
 # レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
@@ -128,12 +166,14 @@ XBRL_TAGS_LEGACY = {
     'eps': [
         'jppfs_cor:BasicEarningsLossPerShare',
         'jppfs_cor:EarningsPerShare',
+        'jpcrp_cor:BasicEarningsLossPerShareSummaryOfBusinessResults',  # EDINET有報
     ],
 }
 
 # jppfs名前空間パターン（日本基準）
 JPPFS_NAMESPACE_PATTERNS = [
     'jppfs_cor',
+    'jpcrp_cor',  # 企業内容等開示タクソノミ（EPSなどの開示項目）
     'http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs',
 ]
 
@@ -305,9 +345,11 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
 
 
 def _is_jppfs_namespace(qname: QName) -> bool:
-    """QNameがjppfs_cor名前空間（日本基準）に属するか判定"""
-    if qname.prefix and 'jppfs' in qname.prefix:
-        return True
+    """QNameがjppfs_cor/jpcrp_cor名前空間（日本基準）に属するか判定"""
+    if qname.prefix:
+        for pattern in JPPFS_NAMESPACE_PATTERNS:
+            if pattern in qname.prefix:
+                return True
     if qname.namespace_uri:
         for pattern in JPPFS_NAMESPACE_PATTERNS:
             if pattern in qname.namespace_uri:
@@ -380,6 +422,7 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
                 return {}
 
     financials = {}
+    unmatched_elements = set()  # 未マッチ要素の収集（診断用）
 
     try:
         for fact in parser.load_facts():
@@ -396,6 +439,7 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
             if not db_field:
                 db_field = XBRL_FACT_MAPPING_IFRS.get(fact.qname.local_name)
             if not db_field:
+                unmatched_elements.add(f"{fact.qname.prefix or '?'}:{fact.qname.local_name}")
                 continue
 
             # 既にセット済みならスキップ（最初に見つかった値を優先）
@@ -425,6 +469,10 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
     except Exception as e:
         print(f"    [ERROR] iXBRLパース失敗: {e}")
         return {}
+
+    if unmatched_elements:
+        print(f"    [DEBUG] 未マッチXBRL要素 ({len(unmatched_elements)}件): "
+              f"{', '.join(sorted(unmatched_elements)[:15])}")
 
     return financials
 
@@ -496,13 +544,16 @@ def ticker_to_edinet_code(ticker_code: str) -> Optional[str]:
         return row['edinet_code'] if row else None
 
 
-def process_document(client: EdinetClient, doc_info: dict) -> bool:
+def process_document(client: EdinetClient, doc_info: dict,
+                     edinet_map: dict = None, processed_ids: set = None) -> bool:
     """
     1つの書類を処理
 
     Args:
         client: EdinetClientインスタンス
         doc_info: 書類情報（APIレスポンスの1要素）
+        edinet_map: EDINETコード→証券コードのマッピング（キャッシュ）
+        processed_ids: 処理済み書類IDの集合
     """
     doc_id = doc_info.get('docID')
     edinet_code = doc_info.get('edinetCode')
@@ -511,8 +562,16 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
     period_end = doc_info.get('periodEnd')
     submit_date = doc_info.get('submitDateTime', '')[:10]
 
-    # 証券コードを取得
-    ticker_code = edinet_code_to_ticker(edinet_code)
+    # 処理済みならスキップ（DL不要）
+    if processed_ids and doc_id and doc_id in processed_ids:
+        print(f"  [SKIP] 処理済み: {doc_id} ({filer_name})")
+        return False
+
+    # 証券コードを取得（キャッシュ優先）
+    if edinet_map is not None:
+        ticker_code = edinet_map.get(edinet_code)
+    else:
+        ticker_code = edinet_code_to_ticker(edinet_code)
 
     if not ticker_code:
         print(f"  [SKIP] EDINETコード未登録: {edinet_code} ({filer_name})")
@@ -586,7 +645,20 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
             edinet_doc_id=doc_id
         )
 
-        print(f"    保存完了: 売上={financials.get('revenue')}, 営業利益={financials.get('operating_income')}")
+        fields = {
+            '売上': financials.get('revenue'),
+            '売上総利益': financials.get('gross_profit'),
+            '営業利益': financials.get('operating_income'),
+            '経常利益': financials.get('ordinary_income'),
+            '純利益': financials.get('net_income'),
+            'EPS': financials.get('eps'),
+        }
+        missing = [k for k, v in fields.items() if v is None]
+        detail = ", ".join(f"{k}={v}" for k, v in fields.items())
+        if missing:
+            print(f"    [一部欠損] [{ticker_code} {period_end}] {detail}（欠損: {', '.join(missing)}）")
+        else:
+            print(f"    保存完了: [{ticker_code} {period_end}] {detail}")
         return True
 
     finally:
@@ -594,7 +666,8 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None):
+def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
+                     force: bool = False):
     """
     決算データを取得
 
@@ -602,13 +675,18 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None):
         days: 過去何日分を取得するか
         tickers: 対象銘柄リスト（Noneなら全銘柄）
         api_key: EDINET APIキー
+        force: Trueなら処理済み書類も再取得
     """
     log_id = log_batch_start("fetch_financials")
     processed = 0
 
     client = EdinetClient(api_key=api_key)
 
-    print(f"決算データ取得開始: 過去{days}日分")
+    # マッピングを一括ロード（DB接続を最小化）
+    edinet_map = get_edinet_ticker_map()
+    processed_ids = None if force else get_processed_doc_ids()
+    skip_info = "無効(--force)" if force else f"{len(processed_ids)}件"
+    print(f"決算データ取得開始: 過去{days}日分（追跡銘柄: {len(edinet_map)}社, 処理済みスキップ: {skip_info}）")
     print("-" * 50)
 
     try:
@@ -617,9 +695,9 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None):
             target_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
             print(f"\n[{target_date}]")
 
-            # 有価証券報告書・半期報告書を取得
-            docs = client.get_document_list(target_date, doc_type='120')
-            docs += client.get_document_list(target_date, doc_type='160')  # 半期報告書
+            # 有価証券報告書・半期報告書を1回のAPI呼び出しで取得
+            all_docs = client.get_document_list(target_date)
+            docs = [d for d in all_docs if d.get('docTypeCode') in ('120', '160')]
 
             if not docs:
                 print("  書類なし")
@@ -628,18 +706,18 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None):
             print(f"  {len(docs)}件の書類")
 
             for doc in docs:
-                # 対象銘柄フィルタ
+                # 対象銘柄フィルタ（キャッシュ参照、DB不要）
                 if tickers:
                     edinet_code = doc.get('edinetCode')
-                    ticker = edinet_code_to_ticker(edinet_code)
+                    ticker = edinet_map.get(edinet_code)
                     if ticker not in tickers:
                         continue
 
-                if process_document(client, doc):
+                result = process_document(client, doc, edinet_map, processed_ids)
+                if result:
                     processed += 1
-
-                # API制限対策
-                time.sleep(1.0)
+                    # API制限対策（ダウンロード実行時のみ）
+                    time.sleep(1.0)
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
@@ -676,6 +754,7 @@ def main():
     parser.add_argument('--ticker', '-t', help='特定銘柄のみ取得（カンマ区切り）')
     parser.add_argument('--api-key', help='EDINET APIキー（未指定時は環境変数 EDINET_API_KEY）')
     parser.add_argument('--doc-id', help='特定の書類IDを処理')
+    parser.add_argument('--force', action='store_true', help='処理済み書類も再取得')
     args = parser.parse_args()
 
     # APIキー: 引数 > 環境変数
@@ -691,7 +770,7 @@ def main():
         doc_info = {'docID': args.doc_id}
         process_document(client, doc_info)
     else:
-        fetch_financials(days=args.days, tickers=tickers, api_key=api_key)
+        fetch_financials(days=args.days, tickers=tickers, api_key=api_key, force=args.force)
 
 
 if __name__ == "__main__":

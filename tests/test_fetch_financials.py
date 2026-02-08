@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 
 from fetch_financials import (
     XBRL_FACT_MAPPING,
+    XBRL_FACT_MAPPING_IFRS,
     _is_jppfs_namespace,
+    _is_supported_namespace,
     _is_current_period_context,
     extract_edinet_zip,
 )
@@ -47,6 +49,50 @@ class TestXbrlFactMapping:
         """EPSのバリエーションが正しくマッピングされること"""
         assert XBRL_FACT_MAPPING['BasicEarningsLossPerShare'] == 'eps'
         assert XBRL_FACT_MAPPING['EarningsPerShare'] == 'eps'
+        # EDINET有報・半期報の要素名
+        assert XBRL_FACT_MAPPING['BasicEarningsLossPerShareSummaryOfBusinessResults'] == 'eps'
+        assert XBRL_FACT_MAPPING['DilutedEarningsPerShareSummaryOfBusinessResults'] == 'eps'
+
+    def test_eps_mapping_ifrs(self):
+        """IFRS EPSのバリエーションが正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING_IFRS['BasicEarningsLossPerShareIFRS'] == 'eps'
+        assert XBRL_FACT_MAPPING_IFRS['BasicEarningsLossPerShareIFRSSummaryOfBusinessResults'] == 'eps'
+        assert XBRL_FACT_MAPPING_IFRS['DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults'] == 'eps'
+
+    def test_revenue_industry_variants(self):
+        """業種別売上高バリエーションが正しくマッピングされること"""
+        industry_variants = [
+            'OperatingRevenue1', 'OperatingRevenue2',
+            'NetSalesOfCompletedConstructionContracts',
+            'NetSalesOfCompletedConstructionContractsCNS',
+            'NetSalesAndOperatingRevenue',
+            'BusinessRevenue', 'TotalOperatingRevenue',
+            'OrdinaryIncomeBNK',
+        ]
+        for variant in industry_variants:
+            assert XBRL_FACT_MAPPING[variant] == 'revenue', f"{variant} should map to revenue"
+
+    def test_revenue_summary_variants(self):
+        """有報SummaryOfBusinessResults売上高が正しくマッピングされること"""
+        summary_variants = [
+            'NetSalesSummaryOfBusinessResults',
+            'OperatingRevenue1SummaryOfBusinessResults',
+            'RevenueIFRSSummaryOfBusinessResults',
+            'RevenuesUSGAAPSummaryOfBusinessResults',
+        ]
+        for variant in summary_variants:
+            assert XBRL_FACT_MAPPING[variant] == 'revenue', f"{variant} should map to revenue"
+
+    def test_gross_profit_construction(self):
+        """建設業の売上総利益バリエーションが正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING['GrossProfitOnCompletedConstructionContracts'] == 'gross_profit'
+        assert XBRL_FACT_MAPPING['GrossProfitOnCompletedConstructionContractsCNS'] == 'gross_profit'
+
+    def test_ifrs_revenue_variants(self):
+        """IFRS売上高バリエーションが正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING_IFRS['RevenueFromContractsWithCustomers'] == 'revenue'
+        assert XBRL_FACT_MAPPING_IFRS['RevenueIFRS'] == 'revenue'
+        assert XBRL_FACT_MAPPING_IFRS['OperatingRevenueIFRS'] == 'revenue'
 
     def test_all_db_fields_covered(self):
         """全DBフィールドがマッピングに含まれること"""
@@ -72,8 +118,13 @@ class TestNamespaceDetection:
         )
         assert _is_jppfs_namespace(qname) is True
 
+    def test_jpcrp_cor_prefix(self):
+        """jpcrp_corプレフィックス（EDINET開示タクソノミ）がjppfsとして認識されること"""
+        qname = QName(local_name='BasicEarningsLossPerShareSummaryOfBusinessResults', prefix='jpcrp_cor')
+        assert _is_jppfs_namespace(qname) is True
+
     def test_non_jppfs_prefix(self):
-        """jppfs以外のプレフィックスが除外されること"""
+        """jppfs/jpcrp以外のプレフィックスが除外されること"""
         qname = QName(local_name='SomeElement', prefix='jpigp_cor')
         assert _is_jppfs_namespace(qname) is False
 

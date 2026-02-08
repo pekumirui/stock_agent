@@ -70,8 +70,8 @@ def init_database():
         applied_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("""
             INSERT INTO _yoyo_migration (migration_hash, migration_id, applied_at_utc)
-            VALUES ('', ?, ?)
-        """, (migration_id, applied_at))
+            VALUES (?, ?, ?)
+        """, (migration_id, migration_id, applied_at))
 
         applied_count += 1
         print(f"  マイグレーション適用: {migration_id}")
@@ -418,6 +418,25 @@ def ticker_exists(ticker_code: str) -> bool:
             (ticker_code,)
         )
         return cursor.fetchone() is not None
+
+
+def get_edinet_ticker_map(active_only: bool = True) -> dict:
+    """EDINETコード→証券コードのマッピングを一括取得"""
+    with get_connection() as conn:
+        sql = "SELECT edinet_code, ticker_code FROM companies WHERE edinet_code IS NOT NULL"
+        if active_only:
+            sql += " AND is_active = 1"
+        cursor = conn.execute(sql)
+        return {row['edinet_code']: row['ticker_code'] for row in cursor.fetchall()}
+
+
+def get_processed_doc_ids() -> set:
+    """処理済みのEDINET書類IDの集合を取得"""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT DISTINCT edinet_doc_id FROM financials WHERE edinet_doc_id IS NOT NULL"
+        )
+        return {row['edinet_doc_id'] for row in cursor.fetchall()}
 
 
 if __name__ == "__main__":
