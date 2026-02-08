@@ -26,6 +26,12 @@ stock_agent/
 │   ├── validate_schema.py  # スキーマ検証ツール
 │   ├── migrate.py          # DBマイグレーション管理
 │   └── run_daily_batch.py  # 日次バッチメイン
+├── web/                    # Webビューア
+│   ├── app.py              # FastAPIメインアプリ
+│   ├── routers/            # APIルーター
+│   ├── services/           # ビジネスロジック
+│   ├── templates/          # Jinja2テンプレート
+│   └── static/             # CSS/JS
 ├── tests/                  # テストコード
 ├── logs/                   # ログ出力用
 └── README.md
@@ -36,7 +42,7 @@ stock_agent/
 ### 1. 必要なパッケージをインストール
 
 ```bash
-pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations
+pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations fastapi uvicorn jinja2 python-multipart
 ```
 
 ### 2. 初回セットアップ（銘柄マスタ + サンプルデータ）
@@ -114,6 +120,33 @@ python3 scripts/fetch_prices.py --ticker 7203,285A,200A,6758
 ```
 
 **バリデーション**: すべての証券コードは `db_utils.is_valid_ticker_code()` で検証されます。
+
+## Webビューア
+
+決算データをリアルタイムに参照できるWebインターフェースを提供します。
+
+### 起動方法
+
+```bash
+cd /home/pekumirui/stock_agent && venv/bin/python -m uvicorn web.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+ブラウザで http://localhost:8000/viewer にアクセス。
+
+### 機能
+
+- **リアルタイムデータ**: 最新の決算発表を時系列で表示（開示時刻付き）
+- **単独四半期算出**: Q2/Q3/Q4の累積値から単独四半期を自動計算
+- **業績予想比較**: 会社予想・コンセンサスとの差異を可視化
+- **前年同期比較**: YoY成長率を自動計算
+- **適時開示追跡**: 決算発表・業績修正・配当発表を統合表示
+
+### 技術スタック
+
+- **バックエンド**: FastAPI（Python 3.10+）
+- **テンプレート**: Jinja2
+- **フロントエンド**: htmx（サーバー駆動UI）+ Alpine.js（クライアントステート）
+- **スタイル**: カスタムCSS（ダークテーマ対応）
 
 ## 各スクリプトの使い方
 
@@ -267,7 +300,10 @@ python3 scripts/validate_schema.py --dry-run
 | companies | 銘柄マスタ |
 | daily_prices | 日次株価 |
 | stock_splits | 株式分割情報 |
-| financials | 決算データ |
+| financials | 決算データ（announcement_time追加） |
+| announcements | 適時開示（決算/業績修正/配当） |
+| management_forecasts | 業績予想 |
+| consensus_estimates | コンセンサス予想（スキーマのみ） |
 | batch_logs | バッチ実行ログ |
 | document_analyses | 決算資料分析（将来のAI分析用） |
 | _yoyo_migration | マイグレーション履歴管理テーブル |
@@ -280,6 +316,7 @@ python3 scripts/validate_schema.py --dry-run
 | v_latest_financials | 各銘柄の最新決算（銘柄情報付き） |
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
+| v_financials_standalone_quarter | 単独四半期算出（累積値から差分計算） |
 | v_missing_financials | 決算データ欠損フィールド確認 |
 
 ## SQLiteでの確認

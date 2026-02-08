@@ -3,7 +3,17 @@
 ## 依存パッケージ
 
 ```bash
-pip install yfinance pandas requests openpyxl pytest pytest-cov beautifulsoup4
+pip install yfinance pandas requests openpyxl pytest pytest-cov beautifulsoup4 fastapi uvicorn jinja2 python-multipart
+```
+
+## Webビューアの起動
+
+```bash
+# Webサーバー起動
+cd /home/pekumirui/stock_agent && venv/bin/python -m uvicorn web.app:app --host 0.0.0.0 --port 8000 --reload
+
+# アクセス
+# http://localhost:8000/viewer
 ```
 
 ## 開発時のコマンド

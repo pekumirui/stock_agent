@@ -37,6 +37,19 @@ stock_agent/
 │   ├── validate_schema.py           # スキーマ検証ツール
 │   ├── migrate.py                   # DBマイグレーション管理
 │   └── run_daily_batch.py           # 日次バッチメイン
+├── web/                             # Webビューア
+│   ├── app.py                       # FastAPIメインアプリ
+│   ├── routers/
+│   │   └── viewer.py                # ビューアルーター（3エンドポイント）
+│   ├── services/
+│   │   └── financial_service.py    # ビジネスロジック
+│   ├── templates/                   # Jinja2テンプレート
+│   │   ├── base.html
+│   │   ├── viewer.html
+│   │   └── partials/                # htmx部分更新用
+│   └── static/
+│       ├── css/viewer.css           # ダークテーマCSS
+│       └── js/viewer.js             # Alpine.jsアプリ
 ├── tests/                           # テストコード
 │   ├── conftest.py                  # pytest共通fixture
 │   ├── test_db_utils.py             # DB操作のテスト
@@ -69,7 +82,10 @@ stock_agent/
 | companies | 銘柄マスタ | ticker_code |
 | daily_prices | 日次株価（OHLCV+調整後終値） | id, UNIQUE(ticker_code, trade_date) |
 | stock_splits | 株式分割情報 | id, UNIQUE(ticker_code, split_date) |
-| financials | 決算データ | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter) |
+| financials | 決算データ（announcement_time追加） | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter) |
+| announcements | 適時開示（決算/業績修正/配当） | id, UNIQUE(ticker_code, announcement_date, type, fiscal_year, fiscal_quarter) |
+| management_forecasts | 業績予想 | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter, announced_date) |
+| consensus_estimates | コンセンサス予想（スキーマのみ） | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter, as_of_date) |
 | document_analyses | 決算資料AI分析（将来用） | id |
 | batch_logs | バッチ実行ログ | id |
 
@@ -81,4 +97,5 @@ stock_agent/
 | v_latest_financials | 最新決算（銘柄情報付き） |
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
+| v_financials_standalone_quarter | 単独四半期算出（累積値から差分計算） |
 
