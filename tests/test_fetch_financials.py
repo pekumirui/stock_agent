@@ -135,16 +135,11 @@ class TestExtractEdinetZip:
         result = extract_edinet_zip(buf.getvalue())
         try:
             assert result is not None
-            assert 'manifest' in result.name.lower()
-            assert result.exists()
+            assert isinstance(result, list)
+            assert 'manifest' in result[0].name.lower()
+            assert result[0].exists()
         finally:
-            # クリーンアップ
-            if result:
-                temp_dir = result
-                while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
-                    temp_dir = temp_dir.parent
-                if str(temp_dir.name).startswith("edinet_"):
-                    shutil.rmtree(temp_dir, ignore_errors=True)
+            self._cleanup_result(result)
 
     def test_extract_legacy_xbrl(self):
         """旧形式の.xbrlファイルがフォールバックで検出されること"""
@@ -155,14 +150,10 @@ class TestExtractEdinetZip:
         result = extract_edinet_zip(buf.getvalue())
         try:
             assert result is not None
-            assert result.suffix == '.xbrl'
+            assert isinstance(result, list)
+            assert result[0].suffix == '.xbrl'
         finally:
-            if result:
-                temp_dir = result
-                while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
-                    temp_dir = temp_dir.parent
-                if str(temp_dir.name).startswith("edinet_"):
-                    shutil.rmtree(temp_dir, ignore_errors=True)
+            self._cleanup_result(result)
 
     def test_extract_empty_zip(self):
         """XBRL関連ファイルのないZIPはNoneを返すこと"""
@@ -177,3 +168,64 @@ class TestExtractEdinetZip:
         """不正なZIPデータはNoneを返すこと"""
         result = extract_edinet_zip(b'not a zip file')
         assert result is None
+
+    def _cleanup_result(self, result):
+        """テスト用: extract_edinet_zipの結果を一時ディレクトリごと削除"""
+        if result:
+            temp_dir = result[0]
+            while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
+                temp_dir = temp_dir.parent
+            if str(temp_dir.name).startswith("edinet_"):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_tdnet_jgaap_attachment_pl_detected(self):
+        """J-GAAP TDnet ZIPのAttachment P/Lファイル（acedjppl）が検出されること"""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            zf.writestr('XBRLData/Summary/tse-acedjpsm-12345-ixbrl.htm', '<html></html>')
+            zf.writestr('XBRLData/Attachment/tse-acedjppl-12345-ixbrl.htm', '<html></html>')
+            zf.writestr('XBRLData/Attachment/tse-acedjpbs-12345-ixbrl.htm', '<html></html>')
+
+        result = extract_edinet_zip(buf.getvalue())
+        try:
+            assert result is not None
+            assert len(result) == 2  # Summary + P/Lのみ（B/Sは含まない）
+            filenames = [p.name for p in result]
+            assert any('sm' in fn for fn in filenames)
+            assert any('pl' in fn for fn in filenames)
+        finally:
+            self._cleanup_result(result)
+
+    def test_tdnet_ifrs_attachment_pl_detected(self):
+        """IFRS TDnet ZIPのAttachment P/Lファイル（acifrspl）が検出されること"""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            zf.writestr('XBRLData/Summary/tse-acedifsm-12345-ixbrl.htm', '<html></html>')
+            zf.writestr('XBRLData/Attachment/tse-acifrspl-12345-ixbrl.htm', '<html></html>')
+
+        result = extract_edinet_zip(buf.getvalue())
+        try:
+            assert result is not None
+            assert len(result) == 2
+            filenames = [p.name for p in result]
+            assert any('sm' in fn for fn in filenames)
+            assert any('pl' in fn for fn in filenames)
+        finally:
+            self._cleanup_result(result)
+
+    def test_tdnet_summary_before_attachment(self):
+        """Summaryファイルが常にAttachmentより先にリストされること"""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            # ZIP内の順序を意図的に逆にする
+            zf.writestr('XBRLData/Attachment/tse-acedjppl-12345-ixbrl.htm', '<html></html>')
+            zf.writestr('XBRLData/Summary/tse-acedjpsm-12345-ixbrl.htm', '<html></html>')
+
+        result = extract_edinet_zip(buf.getvalue())
+        try:
+            assert result is not None
+            assert len(result) == 2
+            assert 'Summary' in str(result[0])
+            assert 'Attachment' in str(result[1])
+        finally:
+            self._cleanup_result(result)
