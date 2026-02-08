@@ -27,7 +27,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import xml.etree.ElementTree as ET
 
 # XBRLPライブラリのインポート
@@ -54,7 +54,7 @@ DOC_TYPE_CODES = {
     '170': '発行登録追補書類',
 }
 
-# XBRLP用: QName local_name → DBフィールドのマッピング
+# XBRLP用: QName local_name → DBフィールドのマッピング（日本基準）
 XBRL_FACT_MAPPING = {
     # 売上高
     'NetSales': 'revenue',
@@ -75,6 +75,31 @@ XBRL_FACT_MAPPING = {
     # EPS
     'BasicEarningsLossPerShare': 'eps',
     'EarningsPerShare': 'eps',
+}
+
+# IFRS用マッピング（IFRS採用企業向け）
+XBRL_FACT_MAPPING_IFRS = {
+    # 売上高
+    'Revenue': 'revenue',
+    'SalesIFRS': 'revenue',  # TDnet用
+    # 売上総利益
+    'GrossProfit': 'gross_profit',
+    'GrossProfitIFRS': 'gross_profit',  # jpigp_cor用（Attachment）
+    # 営業利益（IFRSでは複数パターンあり）
+    'ProfitLossFromOperatingActivities': 'operating_income',
+    'OperatingProfitLoss': 'operating_income',
+    'OperatingIncomeIFRS': 'operating_income',  # TDnet用
+    # 税引前利益（IFRSに経常利益はない）
+    'ProfitLossBeforeTax': 'ordinary_income',
+    'ProfitBeforeTaxIFRS': 'ordinary_income',  # TDnet用
+    # 純利益
+    'ProfitLossAttributableToOwnersOfParent': 'net_income',
+    'ProfitLoss': 'net_income',
+    'ProfitAttributableToOwnersOfParentIFRS': 'net_income',  # TDnet用
+    # EPS
+    'BasicEarningsLossPerShare': 'eps',
+    'DilutedEarningsLossPerShare': 'eps',
+    'BasicEarningsPerShareIFRS': 'eps',  # TDnet用
 }
 
 # レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
@@ -106,10 +131,20 @@ XBRL_TAGS_LEGACY = {
     ],
 }
 
-# jppfs名前空間パターン
+# jppfs名前空間パターン（日本基準）
 JPPFS_NAMESPACE_PATTERNS = [
     'jppfs_cor',
     'http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs',
+]
+
+# IFRS名前空間パターン
+IFRS_NAMESPACE_PATTERNS = [
+    'ifrs-full',
+    'ifrs_cor',
+    'jpcif_cor',  # 日本IFRSタクソノミ
+    'jpigp_cor',  # 日本IFRS汎用タクソノミ
+    'tse-ed-t',   # 東証電子開示タクソノミ（TDnet用）
+    'http://xbrl.ifrs.org/taxonomy',
 ]
 
 # XBRL cache ディレクトリ
@@ -192,10 +227,10 @@ class EdinetClient:
             return None
 
 
-def extract_edinet_zip(zip_content: bytes) -> Optional[Path]:
+def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
     """
     EDINETのZIPを一時ディレクトリに展開し、
-    manifestファイルまたはXBRLファイルのパスを返す
+    iXBRLファイルのパスリストを返す
 
     EDINET ZIP構造:
       XBRL/
@@ -207,14 +242,15 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[Path]:
           *_lab.xml, *_pre.xml, *_cal.xml (linkbase)
 
     TDnet ZIP構造:
-      summary/
-        XBRL/PublicDoc/
-          *.htm / *.html (iXBRLファイル)
-          *.xbrl
-          manifest*.xml
+      XBRLData/
+        Summary/
+          tse-acedifsm-*.htm (決算短信サマリー - 財務ハイライト)
+        Attachment/
+          *.htm (詳細財務諸表: acpl=P/L, acbs=B/S等)
+          manifest.xml
 
     Returns:
-        展開されたファイルのパス（manifestまたは.xbrl）。
+        展開されたファイルのパスリスト。
         呼び出し側でtemp_dirの削除が必要。
     """
     temp_dir = Path(tempfile.mkdtemp(prefix="edinet_"))
@@ -226,19 +262,37 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[Path]:
         all_files = list(temp_dir.rglob("*"))[:10]
         print(f"    [DEBUG] ZIP内のファイル（最初10件）: {[str(f.relative_to(temp_dir)) for f in all_files if f.is_file()]}")
 
-        # manifestファイルを探す（iXBRL形式）
+        result_files = []
+
+        # TDnet対応: SummaryディレクトリのiXBRL（決算短信サマリー）
+        for summary_htm in sorted(temp_dir.rglob("*ixbrl.htm")):
+            if "Summary" in summary_htm.parts:
+                print(f"    [DEBUG] TDnet Summaryファイル発見: {summary_htm.relative_to(temp_dir)}")
+                result_files.append(summary_htm)
+
+        # TDnet対応: Attachment内の損益計算書（acpl = P/L）でgross_profitを取得
+        for attachment_htm in sorted(temp_dir.rglob("*acpl*ixbrl.htm")):
+            if "Attachment" in attachment_htm.parts:
+                print(f"    [DEBUG] TDnet P/Lファイル発見: {attachment_htm.relative_to(temp_dir)}")
+                result_files.append(attachment_htm)
+
+        # TDnetファイルが見つかった場合はそれを返す
+        if result_files:
+            return result_files
+
+        # EDINET: manifestファイルを探す（iXBRL形式）
         for manifest in sorted(temp_dir.rglob("manifest*.xml")):
             print(f"    [DEBUG] manifestファイル発見: {manifest.relative_to(temp_dir)}")
             # PublicDoc制約を緩和（TDnet対応）
             if "PublicDoc" in str(manifest) or "XBRL" in str(manifest):
-                return manifest
+                return [manifest]
 
         # manifestがない場合は.xbrlファイルを探す（旧形式フォールバック）
         for xbrl_file in sorted(temp_dir.rglob("*.xbrl")):
             print(f"    [DEBUG] XBRLファイル発見: {xbrl_file.relative_to(temp_dir)}")
             # PublicDoc制約を緩和（TDnet対応）
             if "PublicDoc" in str(xbrl_file) or "XBRL" in str(xbrl_file):
-                return xbrl_file
+                return [xbrl_file]
 
         print(f"    [WARN] ZIPにXBRL関連ファイルが見つかりません")
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -250,7 +304,7 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[Path]:
 
 
 def _is_jppfs_namespace(qname: QName) -> bool:
-    """QNameがjppfs_cor名前空間に属するか判定"""
+    """QNameがjppfs_cor名前空間（日本基準）に属するか判定"""
     if qname.prefix and 'jppfs' in qname.prefix:
         return True
     if qname.namespace_uri:
@@ -258,6 +312,24 @@ def _is_jppfs_namespace(qname: QName) -> bool:
             if pattern in qname.namespace_uri:
                 return True
     return False
+
+
+def _is_ifrs_namespace(qname: QName) -> bool:
+    """QNameがIFRS名前空間に属するか判定"""
+    if qname.prefix:
+        for pattern in IFRS_NAMESPACE_PATTERNS:
+            if pattern in qname.prefix:
+                return True
+    if qname.namespace_uri:
+        for pattern in IFRS_NAMESPACE_PATTERNS:
+            if pattern in qname.namespace_uri:
+                return True
+    return False
+
+
+def _is_supported_namespace(qname: QName) -> bool:
+    """サポートされた名前空間（日本基準 or IFRS）か判定"""
+    return _is_jppfs_namespace(qname) or _is_ifrs_namespace(qname)
 
 
 def _is_current_period_context(context_ref: str) -> bool:
@@ -270,45 +342,58 @@ def _is_current_period_context(context_ref: str) -> bool:
     return False
 
 
-def parse_ixbrl_financials(manifest_path: Path) -> Dict[str, Any]:
+def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
     """
     XBRLPを使ってiXBRLから財務データを抽出
 
     Args:
-        manifest_path: EDINET ZIP内のmanifest.xmlパス
+        ixbrl_paths: iXBRLファイルのパス（Path）またはパスのリスト（List[Path]）
+                     manifest.xmlパスも可（従来互換）
 
     Returns:
         {'revenue': 123456.0, 'operating_income': 12345.0, ...}
     """
     parser = Parser(file_loader=_file_loader)
 
-    try:
-        parser.prepare_ixbrl(manifest_path)
-    except ValueError:
-        # manifestからiXBRLファイルが見つからない場合、
-        # PublicDoc内の.htm/.htmlファイルを直接探す
-        public_doc_dir = manifest_path.parent
-        htm_files = list(public_doc_dir.glob("*.htm")) + list(public_doc_dir.glob("*.html"))
-        if htm_files:
-            parser.ixbrl_files = htm_files
-        else:
-            print(f"    [WARN] iXBRLファイルが見つかりません")
-            return {}
+    # リストで渡された場合（複数ファイル対応）
+    if isinstance(ixbrl_paths, list):
+        print(f"    [DEBUG] 複数iXBRLファイルを使用: {[p.name for p in ixbrl_paths]}")
+        parser.ixbrl_files = ixbrl_paths
+    # .htm/.htmlファイルを直接渡された場合
+    elif ixbrl_paths.suffix.lower() in ['.htm', '.html']:
+        print(f"    [DEBUG] 直接iXBRLファイルを使用: {ixbrl_paths.name}")
+        parser.ixbrl_files = [ixbrl_paths]
+    else:
+        # manifest.xmlの場合（従来処理）
+        try:
+            parser.prepare_ixbrl(ixbrl_paths)
+        except ValueError:
+            # manifestからiXBRLファイルが見つからない場合、
+            # PublicDoc内の.htm/.htmlファイルを直接探す
+            public_doc_dir = ixbrl_paths.parent
+            htm_files = list(public_doc_dir.glob("*.htm")) + list(public_doc_dir.glob("*.html"))
+            if htm_files:
+                parser.ixbrl_files = htm_files
+            else:
+                print(f"    [WARN] iXBRLファイルが見つかりません")
+                return {}
 
     financials = {}
 
     try:
         for fact in parser.load_facts():
-            # jppfs_cor名前空間のFactのみ対象
-            if not _is_jppfs_namespace(fact.qname):
+            # サポートされた名前空間のFactのみ対象（日本基準 or IFRS）
+            if not _is_supported_namespace(fact.qname):
                 continue
 
             # 当期データのみ
             if not _is_current_period_context(fact.context_ref):
                 continue
 
-            # マッピング対象か確認
+            # マッピング対象か確認（日本基準 → IFRS の順で検索）
             db_field = XBRL_FACT_MAPPING.get(fact.qname.local_name)
+            if not db_field:
+                db_field = XBRL_FACT_MAPPING_IFRS.get(fact.qname.local_name)
             if not db_field:
                 continue
 
@@ -440,31 +525,37 @@ def process_document(client: EdinetClient, doc_info: dict) -> bool:
         return False
 
     # ZIPを展開
-    extracted_path = extract_edinet_zip(zip_content)
-    if not extracted_path:
+    extracted_paths = extract_edinet_zip(zip_content)
+    if not extracted_paths:
         return False
 
     # temp_dirを特定（クリーンアップ用）
-    # extracted_pathは temp_dir/XBRL/PublicDoc/manifest.xml のようなパス
-    temp_dir = extracted_path
+    # extracted_pathsはリスト、最初の要素からtemp_dirを特定
+    first_path = extracted_paths[0]
+    temp_dir = first_path
     while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
         temp_dir = temp_dir.parent
-    # edinet_プレフィックスが見つからない場合はextracted_pathの最上位を使う
+    # edinet_プレフィックスが見つからない場合はfirst_pathの最上位を使う
     if not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = extracted_path
+        temp_dir = first_path
         while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
             temp_dir = temp_dir.parent
 
     try:
         # パース方法を判定
-        if extracted_path.name.lower().startswith('manifest') and extracted_path.suffix == '.xml':
+        first_file = extracted_paths[0]
+        if first_file.name.lower().startswith('manifest') and first_file.suffix == '.xml':
             # iXBRL形式 → XBRLPパーサー使用
             print(f"    パーサー: XBRLP (iXBRL)")
-            financials = parse_ixbrl_financials(extracted_path)
+            financials = parse_ixbrl_financials(extracted_paths)
+        elif first_file.suffix.lower() in ['.htm', '.html']:
+            # 直接htmファイル → XBRLPパーサー使用
+            print(f"    パーサー: XBRLP (iXBRL)")
+            financials = parse_ixbrl_financials(extracted_paths)
         else:
             # 旧形式 .xbrl → レガシーパーサー使用
             print(f"    パーサー: レガシー (.xbrl)")
-            xbrl_content = extracted_path.read_text(encoding='utf-8')
+            xbrl_content = first_file.read_text(encoding='utf-8')
             financials = _parse_xbrl_legacy(xbrl_content)
 
         if not financials:

@@ -35,7 +35,8 @@ from fetch_financials import (
 from db_utils import (
     insert_financial,
     log_batch_start, log_batch_end,
-    is_valid_ticker_code
+    is_valid_ticker_code,
+    ticker_exists
 )
 
 
@@ -358,6 +359,8 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
     """
     1つの決算短信を処理
 
+    【NEW】JPXリスト外の銘柄を事前に除外
+
     Args:
         client: TdnetClientインスタンス
         announcement: 決算短信情報
@@ -370,6 +373,11 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
     title = announcement['title']
     announcement_date = announcement['announcement_date']
     xbrl_zip_url = announcement['xbrl_zip_url']
+
+    # 【NEW】事前チェック: JPXリスト（companiesテーブル）に登録されているか
+    if not ticker_exists(ticker_code):
+        # ログ出力なし（統計で集計するため）
+        return False
 
     print(f"  処理中: {ticker_code} - {company_name}")
     print(f"    タイトル: {title}")
@@ -384,23 +392,24 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
         return False
 
     # ZIP を展開
-    extracted_path = extract_edinet_zip(zip_content)
-    if not extracted_path:
+    extracted_paths = extract_edinet_zip(zip_content)
+    if not extracted_paths:
         return False
 
     # temp_dirを特定（クリーンアップ用）
-    temp_dir = extracted_path
+    first_path = extracted_paths[0]
+    temp_dir = first_path
     while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
         temp_dir = temp_dir.parent
     if not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = extracted_path
+        temp_dir = first_path
         while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
             temp_dir = temp_dir.parent
 
     try:
         # XBRL を解析
         print(f"    パーサー: XBRLP (iXBRL)")
-        financials = parse_ixbrl_financials(extracted_path)
+        financials = parse_ixbrl_financials(extracted_paths)
 
         if not financials:
             print(f"    [WARN] 財務データを抽出できませんでした")
@@ -440,6 +449,8 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
     """
     TDnet決算短信を取得
 
+    【NEW】JPXリスト外のスキップ件数を統計出力
+
     Args:
         days: 過去N日分を取得（デフォルト1日）
         tickers: 対象銘柄リスト（None=全銘柄）
@@ -448,6 +459,7 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
     """
     log_id = log_batch_start("fetch_tdnet")
     processed = 0
+    skipped_out_of_scope = 0  # 【NEW】JPXリスト外のスキップ件数
 
     client = TdnetClient()
 
@@ -496,6 +508,14 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
 
             # 各決算短信を処理
             for announcement in announcements:
+                ticker_code = announcement['ticker_code']
+
+                # 【NEW】事前チェック
+                if not ticker_exists(ticker_code):
+                    skipped_out_of_scope += 1
+                    continue
+
+                # 処理
                 if process_tdnet_announcement(client, announcement):
                     processed += 1
 
@@ -504,7 +524,9 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
-        print(f"完了: {processed}件の決算短信を処理")
+        print(f"\n処理完了: {processed}件保存")
+        if skipped_out_of_scope > 0:
+            print(f"JPXリスト外のためスキップ: {skipped_out_of_scope}件")
 
     except Exception as e:
         log_batch_end(log_id, "failed", processed, str(e))
