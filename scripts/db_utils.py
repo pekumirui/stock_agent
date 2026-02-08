@@ -273,12 +273,14 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             conn.execute("""
             INSERT INTO financials
             (ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date, announcement_date,
+             announcement_time,
              revenue, gross_profit, operating_income, ordinary_income, net_income, eps,
              currency, unit, source, edinet_doc_id, pdf_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter) DO UPDATE SET
                 fiscal_end_date = excluded.fiscal_end_date,
                 announcement_date = excluded.announcement_date,
+                announcement_time = COALESCE(excluded.announcement_time, announcement_time),
                 revenue = excluded.revenue,
                 gross_profit = excluded.gross_profit,
                 operating_income = excluded.operating_income,
@@ -293,6 +295,7 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             ticker_code, fiscal_year, fiscal_quarter,
             kwargs.get('fiscal_end_date'),
             kwargs.get('announcement_date'),
+            kwargs.get('announcement_time'),
             kwargs.get('revenue'),
             kwargs.get('gross_profit'),
             kwargs.get('operating_income'),
@@ -437,6 +440,174 @@ def get_processed_doc_ids() -> set:
             "SELECT DISTINCT edinet_doc_id FROM financials WHERE edinet_doc_id IS NOT NULL"
         )
         return {row['edinet_doc_id'] for row in cursor.fetchall()}
+
+
+def insert_announcement(ticker_code: str, announcement_date: str, announcement_time: str,
+                        announcement_type: str, title: str, fiscal_year: str = None,
+                        fiscal_quarter: str = None, document_url: str = None,
+                        source: str = 'TDnet'):
+    """
+    適時開示情報を挿入（重複時は無視）
+
+    Args:
+        ticker_code: 証券コード
+        announcement_date: 開示日（YYYY-MM-DD）
+        announcement_time: 開示時刻（HH:MM）
+        announcement_type: 種別（'earnings', 'revision', 'dividend', 'other'）
+        title: 開示タイトル
+        fiscal_year: 決算年度
+        fiscal_quarter: 四半期
+        document_url: 書類URL
+        source: データソース（デフォルト'TDnet'）
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO announcements
+                (ticker_code, announcement_date, announcement_time, announcement_type,
+                 title, fiscal_year, fiscal_quarter, document_url, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (ticker_code, announcement_date, announcement_time, announcement_type,
+                  title, fiscal_year, fiscal_quarter, document_url, source))
+            conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+
+
+def insert_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarter: str,
+                               announced_date: str, forecast_type: str, revenue: float = None,
+                               operating_income: float = None, ordinary_income: float = None,
+                               net_income: float = None, eps: float = None,
+                               dividend_per_share: float = None, revision_direction: str = None,
+                               revision_reason: str = None, source: str = None):
+    """
+    会社業績予想を挿入（重複時は更新）
+
+    Args:
+        ticker_code: 証券コード
+        fiscal_year: 対象決算年度
+        fiscal_quarter: 対象四半期
+        announced_date: 発表日
+        forecast_type: 予想種別（'initial' / 'revised'）
+        revenue: 売上高予想
+        operating_income: 営業利益予想
+        ordinary_income: 経常利益予想
+        net_income: 純利益予想
+        eps: EPS予想
+        dividend_per_share: 配当予想
+        revision_direction: 修正方向（'up' / 'down' / None）
+        revision_reason: 修正理由
+        source: データソース
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute("""
+                INSERT INTO management_forecasts
+                (ticker_code, fiscal_year, fiscal_quarter, announced_date, forecast_type,
+                 revenue, operating_income, ordinary_income, net_income, eps,
+                 dividend_per_share, revision_direction, revision_reason, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter, announced_date) DO UPDATE SET
+                    forecast_type = excluded.forecast_type,
+                    revenue = excluded.revenue,
+                    operating_income = excluded.operating_income,
+                    ordinary_income = excluded.ordinary_income,
+                    net_income = excluded.net_income,
+                    eps = excluded.eps,
+                    dividend_per_share = excluded.dividend_per_share,
+                    revision_direction = excluded.revision_direction,
+                    revision_reason = excluded.revision_reason,
+                    source = excluded.source
+            """, (ticker_code, fiscal_year, fiscal_quarter, announced_date, forecast_type,
+                  revenue, operating_income, ordinary_income, net_income, eps,
+                  dividend_per_share, revision_direction, revision_reason, source))
+            conn.commit()
+    except sqlite3.IntegrityError as e:
+        print(f"    [ERROR] management_forecast挿入失敗: {ticker_code} - {e}")
+
+
+def get_announcements_by_date(date: str, types: list = None) -> list:
+    """
+    指定日の適時開示一覧を取得
+
+    companiesテーブルとJOINしてcompany_nameも返す。
+    typesでannouncement_typeをフィルタ可能。
+
+    Args:
+        date: 対象日（YYYY-MM-DD）
+        types: フィルタするannouncement_typeのリスト（例: ['earnings', 'revision']）
+
+    Returns:
+        list[dict]: 適時開示情報のリスト
+    """
+    with get_connection() as conn:
+        sql = """
+            SELECT a.*, c.company_name
+            FROM announcements a
+            INNER JOIN companies c ON a.ticker_code = c.ticker_code
+            WHERE a.announcement_date = ?
+        """
+        params = [date]
+
+        if types:
+            placeholders = ','.join(['?' for _ in types])
+            sql += f" AND a.announcement_type IN ({placeholders})"
+            params.extend(types)
+
+        sql += " ORDER BY a.announcement_time DESC, a.ticker_code"
+
+        cursor = conn.execute(sql, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarter: str = None) -> list:
+    """
+    指定銘柄の最新業績予想を取得
+
+    Args:
+        ticker_code: 証券コード
+        fiscal_year: 決算年度
+        fiscal_quarter: 四半期（Noneの場合は全四半期）
+
+    Returns:
+        list[dict]: 業績予想データのリスト（announced_date降順）
+    """
+    with get_connection() as conn:
+        sql = """
+            SELECT * FROM management_forecasts
+            WHERE ticker_code = ? AND fiscal_year = ?
+        """
+        params = [ticker_code, fiscal_year]
+
+        if fiscal_quarter:
+            sql += " AND fiscal_quarter = ?"
+            params.append(fiscal_quarter)
+
+        sql += " ORDER BY announced_date DESC"
+
+        cursor = conn.execute(sql, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_standalone_quarter(ticker_code: str, fiscal_year: str, fiscal_quarter: str) -> dict:
+    """
+    v_financials_standalone_quarterビューから単独四半期データを取得
+
+    Args:
+        ticker_code: 証券コード
+        fiscal_year: 決算年度
+        fiscal_quarter: 四半期（Q1/Q2/Q3/Q4）
+
+    Returns:
+        dict: 単独四半期データ（該当なしの場合はNone）
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            SELECT * FROM v_financials_standalone_quarter
+            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+        """, (ticker_code, fiscal_year, fiscal_quarter))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 
 if __name__ == "__main__":
