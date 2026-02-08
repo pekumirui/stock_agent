@@ -51,11 +51,21 @@ P/L本表とは別に、有報の「経営指標等の推移」セクション�
 
 ## 売上総利益の要素名
 
-| 要素名 | 会計基準 |
+### 日本基準 (jppfs_cor)
+| 要素名 | 業種 |
 |---|---|
-| `GrossProfit` | 日本基準・IFRS共通 |
-| `GrossProfitIFRS` | jpigp_cor用 |
+| `GrossProfit` | 一般企業（売上総利益） |
 | `GrossProfitOnCompletedConstructionContracts` | 建設業（完成工事総利益） |
+| `GrossProfitOnCompletedConstructionContractsCNS` | 建設業（連結） |
+| `NetOperatingRevenueSEC` | 第一種金融商品取引業（純営業収益） |
+| `OperatingGrossProfit` | 一般商工業（営業総利益） |
+| `OperatingGrossProfitWAT` | 海運業（営業総利益） |
+
+### IFRS
+| 要素名 | 説明 |
+|---|---|
+| `GrossProfit` | IFRS標準（日本基準と共通） |
+| `GrossProfitIFRS` | jpigp_cor用 |
 
 ## マッピング追加の手順
 

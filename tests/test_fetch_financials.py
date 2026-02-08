@@ -88,6 +88,12 @@ class TestXbrlFactMapping:
         assert XBRL_FACT_MAPPING['GrossProfitOnCompletedConstructionContracts'] == 'gross_profit'
         assert XBRL_FACT_MAPPING['GrossProfitOnCompletedConstructionContractsCNS'] == 'gross_profit'
 
+    def test_gross_profit_industry_variants(self):
+        """業種別売上総利益バリエーションが正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING['NetOperatingRevenueSEC'] == 'gross_profit'   # 第一種金融商品取引業
+        assert XBRL_FACT_MAPPING['OperatingGrossProfit'] == 'gross_profit'     # 一般商工業（営業総利益）
+        assert XBRL_FACT_MAPPING['OperatingGrossProfitWAT'] == 'gross_profit'  # 海運業
+
     def test_ifrs_revenue_variants(self):
         """IFRS売上高バリエーションが正しくマッピングされること"""
         assert XBRL_FACT_MAPPING_IFRS['RevenueFromContractsWithCustomers'] == 'revenue'

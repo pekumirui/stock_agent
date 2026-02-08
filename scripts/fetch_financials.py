@@ -89,6 +89,10 @@ XBRL_FACT_MAPPING = {
     'GrossProfit': 'gross_profit',
     'GrossProfitOnCompletedConstructionContracts': 'gross_profit',    # 建設業
     'GrossProfitOnCompletedConstructionContractsCNS': 'gross_profit', # 建設業（連結）
+    # 売上総利益（業種別バリエーション）
+    'NetOperatingRevenueSEC': 'gross_profit',                        # 第一種金融商品取引業（純営業収益）
+    'OperatingGrossProfit': 'gross_profit',                          # 一般商工業（営業総利益）
+    'OperatingGrossProfitWAT': 'gross_profit',                       # 海運業（営業総利益）
     # 営業利益
     'OperatingIncome': 'operating_income',
     'OperatingProfit': 'operating_income',

@@ -28,7 +28,8 @@
       "Bash(git branch:*)",
       "Bash(venv/bin/python:*)",
       "Bash(../venv/bin/python:*)",
-      "WebFetch(domain:investment.abbamboo.com)"
+      "WebFetch(domain:investment.abbamboo.com)",
+      "Bash(gh auth status:*)"
     ]
   }
 }
