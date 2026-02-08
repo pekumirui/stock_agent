@@ -45,6 +45,34 @@ class TestParseSecCode:
         assert parse_sec_code("123") is None
         assert parse_sec_code("12") is None
 
+    def test_5digit_with_letter_stays_unchanged(self):
+        """英字付き5桁コードはそのまま（変換しない）"""
+        assert parse_sec_code("2914A") == "2914A"  # 日本たばこ産業 優先株
+        assert parse_sec_code("1234B") == "1234B"
+
+    def test_5digit_not_ending_with_zero(self):
+        """末尾0以外の5桁コードはそのまま（変換しない）"""
+        # is_valid_ticker_code() で有効と判定される5桁数字コード
+        # 実際にはこのようなコードは稀だが、テストとして確認
+        assert parse_sec_code("12345") == "12345"
+        assert parse_sec_code("98761") == "98761"
+
+    def test_whitespace_trimming(self):
+        """前後の空白は削除される"""
+        assert parse_sec_code("  7974  ") == "7974"
+        assert parse_sec_code("  79740  ") == "7974"
+        assert parse_sec_code("\t7203\n") == "7203"
+
+    def test_real_world_edinet_codes(self):
+        """実際のEDINET APIから返されるコードのテスト（2025-11-07データ）"""
+        # EDINET APIが実際に返す5桁形式（末尾0）
+        assert parse_sec_code("79740") == "7974"  # 任天堂
+        assert parse_sec_code("68770") == "6877"  # OBARA GROUP
+        assert parse_sec_code("45920") == "4592"  # サンバイオ
+        assert parse_sec_code("63250") == "6325"  # タカキタ
+        assert parse_sec_code("81500") == "8150"  # 三信電気
+        assert parse_sec_code("61400") == "6140"  # 旭ダイヤモンド工業
+
 
 class TestGetCompaniesWithoutEdinet:
     """EDINETコード未登録銘柄取得のテスト"""

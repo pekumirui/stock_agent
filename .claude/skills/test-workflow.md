@@ -66,10 +66,6 @@
 - API制限に注意: Yahoo Financeは頻繁なアクセスで制限される可能性あり
 - 並行実行はサポートしていません（1ファイルずつ順次実行）
 
-### ⚠️ カスタムエージェントの制限（重要）
-
-**現状**: `.claude/agents/` に作成した `test-case-generator.yml` と `test-reviewer.yml` は**Claude Codeに認識されません**。
-
 利用可能なエージェント：
 - `Bash` - コマンド実行
 - `general-purpose` - 汎用エージェント

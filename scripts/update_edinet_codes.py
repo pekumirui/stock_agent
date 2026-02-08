@@ -141,8 +141,22 @@ def parse_sec_code(sec_code: str) -> Optional[str]:
     if not sec_code:
         return None
 
-    # 4-5桁の数字、または4桁数字+英字1文字をチェック
     sec_code_clean = sec_code.strip()
+
+    # EDINET APIは5桁形式（末尾0）で返すことがあるため、4桁に変換
+    # 例: 79740 → 7974, 72030 → 7203, 369A0 → 369A
+    if len(sec_code_clean) == 5 and sec_code_clean.endswith('0'):
+        prefix = sec_code_clean[:4]
+        # 4桁数字 OR 3桁数字+英字 のどちらかなら、末尾0を削除
+        is_4digit = prefix.isdigit()
+        is_3digit_alpha = (len(prefix) == 4 and
+                          prefix[:3].isdigit() and
+                          prefix[3].isalpha())
+
+        if is_4digit or is_3digit_alpha:
+            sec_code_clean = prefix
+
+    # 4-5桁の数字、または4桁数字+英字1文字をチェック
     if is_valid_ticker_code(sec_code_clean):
         return sec_code_clean
 
