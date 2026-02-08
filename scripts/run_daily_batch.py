@@ -4,6 +4,11 @@
 
 毎日実行して株価と決算データを更新する
 
+データソース:
+    - 株価: Yahoo Finance
+    - 決算（有報・半期報）: EDINET
+    - 決算短信（Q1-Q4）: TDnet（※Q1/Q3は法改正によりTDnetのみ）
+
 使用方法:
     python run_daily_batch.py           # 通常実行
     python run_daily_batch.py --init    # 初回セットアップ（銘柄マスタ初期化含む）
@@ -46,7 +51,7 @@ def run_command(cmd: list, description: str) -> bool:
 
 def check_prerequisites():
     """必要なパッケージがインストールされているか確認"""
-    required = ['yfinance', 'pandas', 'requests']
+    required = ['yfinance', 'pandas', 'requests', 'bs4']
     missing = []
     
     for package in required:
@@ -103,7 +108,8 @@ def main():
     parser.add_argument('--full', action='store_true', help='全履歴取得')
     parser.add_argument('--sample', action='store_true', help='サンプル銘柄のみ（テスト用）')
     parser.add_argument('--skip-prices', action='store_true', help='株価取得をスキップ')
-    parser.add_argument('--skip-financials', action='store_true', help='決算取得をスキップ')
+    parser.add_argument('--skip-financials', action='store_true', help='EDINET決算取得をスキップ')
+    parser.add_argument('--skip-tdnet', action='store_true', help='TDnet決算短信取得をスキップ')
     parser.add_argument('--edinet-api-key', help='EDINET APIキー')
     args = parser.parse_args()
     
@@ -117,12 +123,12 @@ def main():
         sys.exit(1)
     
     # DB初期化
-    print("\n[1/4] データベース初期化...")
+    print("\n[1/5] データベース初期化...")
     init_database()
     
     # 初回セットアップ時は銘柄マスタを初期化
     if args.init:
-        print("\n[2/4] 銘柄マスタ初期化...")
+        print("\n[2/5] 銘柄マスタ初期化...")
         cmd = [sys.executable, 'init_companies.py']
         if args.sample:
             cmd.append('--sample')
@@ -134,27 +140,35 @@ def main():
             print("\n[WARNING] 銘柄マスタが空です。--init オプションで初期化してください。")
             print("          または: python scripts/init_companies.py --sample")
             sys.exit(1)
-        print(f"\n[2/4] 銘柄マスタ: {len(tickers)}銘柄登録済み")
+        print(f"\n[2/5] 銘柄マスタ: {len(tickers)}銘柄登録済み")
     
     # 株価取得
     if not args.skip_prices:
-        print("\n[3/4] 株価取得...")
+        print("\n[3/5] 株価取得...")
         cmd = [sys.executable, 'fetch_prices.py']
         if args.full:
             cmd.append('--full')
         run_command(cmd, "株価データ取得")
     else:
-        print("\n[3/4] 株価取得: スキップ")
-    
-    # 決算取得
+        print("\n[3/5] 株価取得: スキップ")
+
+    # EDINET決算取得
     if not args.skip_financials:
-        print("\n[4/4] 決算データ取得...")
+        print("\n[4/5] 決算データ取得（EDINET）...")
         cmd = [sys.executable, 'fetch_financials.py', '--days', '7']
         if args.edinet_api_key:
             cmd.extend(['--api-key', args.edinet_api_key])
-        run_command(cmd, "決算データ取得（EDINET）")
+        run_command(cmd, "決算データ取得（EDINET: 有報・半期報）")
     else:
-        print("\n[4/4] 決算取得: スキップ")
+        print("\n[4/5] EDINET決算取得: スキップ")
+
+    # TDnet決算短信取得
+    if not args.skip_tdnet:
+        print("\n[5/5] 決算短信取得（TDnet）...")
+        cmd = [sys.executable, 'fetch_tdnet.py', '--days', '7']
+        run_command(cmd, "決算短信取得（TDnet: Q1-Q4決算短信）")
+    else:
+        print("\n[5/5] TDnet決算短信取得: スキップ")
     
     # サマリー表示
     show_summary()

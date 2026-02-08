@@ -27,6 +27,7 @@
 - [x] DB操作ロジック改善（`scripts/db_utils.py`）- ticker_exists()追加、FOREIGN KEY違反の事前チェック
 - [x] 包括的テストスイート（`tests/`）- 9テストファイル、実API統合テスト採用
 - [x] **EDINET決算取得の信頼性改善**（`scripts/fetch_financials.py`）- マニフェスト誤選択・引数型・半期報告書対応を修正
+- [x] **TDnet決算短信の日次バッチ統合**（`scripts/run_daily_batch.py`）- Q1/Q3法改正対応、`--skip-tdnet`フラグ追加
 
 ## 次のタスク（優先順）
 

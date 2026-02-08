@@ -61,8 +61,28 @@ python3 scripts/fetch_prices.py --full
 ### 手動実行
 
 ```bash
+# 通常実行（株価 + EDINET決算 + TDnet決算短信）
 python3 scripts/run_daily_batch.py
+
+# TDnet決算短信をスキップ
+python3 scripts/run_daily_batch.py --skip-tdnet
+
+# EDINET決算をスキップ
+python3 scripts/run_daily_batch.py --skip-financials
+
+# 株価のみ取得
+python3 scripts/run_daily_batch.py --skip-financials --skip-tdnet
 ```
+
+**実行ステップ（5段階）**:
+1. データベース初期化
+2. 銘柄マスタ確認
+3. 株価取得（Yahoo Finance）
+4. 決算データ取得（EDINET: 有報・半期報）
+5. 決算短信取得（TDnet: Q1-Q4決算短信）
+
+**TDnet統合の背景**:
+2024年4月の金商法改正により、Q1/Q3四半期報告書のEDINET提出が廃止されました。そのため、Q1/Q3の決算データはTDnet決算短信からしか取得できません。TDnetは過去30日分しか取得できないため、取りこぼしを防ぐために日次バッチに統合しています。
 
 ### cron設定（毎日18:00に実行）
 
