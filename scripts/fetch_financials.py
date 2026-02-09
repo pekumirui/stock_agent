@@ -764,7 +764,7 @@ def process_document(client: EdinetClient, doc_info: dict,
 
 
 def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
-                     force: bool = False, include_quarterly: bool = False):
+                     force: bool = False):
     """
     決算データを取得
 
@@ -773,7 +773,6 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
         tickers: 対象銘柄リスト（Noneなら全銘柄）
         api_key: EDINET APIキー
         force: Trueなら処理済み書類も再取得
-        include_quarterly: 四半期報告書(docTypeCode=140)も取得するか
     """
     log_id = log_batch_start("fetch_financials")
     processed = 0
@@ -795,9 +794,7 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
 
             # 書類一覧を取得（有報・半期報・四半期報）
             all_docs = client.get_document_list(target_date)
-            target_types = {'120', '160'}
-            if include_quarterly:
-                target_types.add('140')
+            target_types = {'120', '140', '160'}
             docs = [d for d in all_docs if d.get('docTypeCode') in target_types]
 
             if not docs:
@@ -856,8 +853,6 @@ def main():
     parser.add_argument('--api-key', help='EDINET APIキー（未指定時は環境変数 EDINET_API_KEY）')
     parser.add_argument('--doc-id', help='特定の書類IDを処理')
     parser.add_argument('--force', action='store_true', help='処理済み書類も再取得')
-    parser.add_argument('--include-quarterly', action='store_true',
-                       help='四半期報告書(docTypeCode=140)も取得（法改正前のQ1/Q3初期投入用）')
     args = parser.parse_args()
 
     # APIキー: 引数 > 環境変数
@@ -874,7 +869,7 @@ def main():
         process_document(client, doc_info)
     else:
         fetch_financials(days=args.days, tickers=tickers, api_key=api_key,
-                        force=args.force, include_quarterly=args.include_quarterly)
+                        force=args.force)
 
 
 if __name__ == "__main__":
