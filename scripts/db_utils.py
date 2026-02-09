@@ -236,20 +236,21 @@ def insert_stock_split(ticker_code: str, split_date: str, ratio_from: float, rat
         conn.commit()
 
 
+# データソース優先度（値が大きいほど優先）
+SOURCE_PRIORITY = {'EDINET': 3, 'TDnet': 2, 'yfinance': 1}
+
+
 def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **kwargs):
     """
     決算データを挿入（データソース優先度を考慮）
 
-    上書きルール:
-    - source='EDINET': 常に保存（正式版優先）
-    - source='TDnet': 既存が EDINET の場合はスキップ
-
-    【NEW】未登録銘柄チェック追加（JPXリスト外の銘柄を除外）
+    上書きルール（優先度: EDINET > TDnet > yfinance）:
+    - 低優先度ソースで既に高優先度データが存在する場合はスキップ
+    - 同一優先度または高優先度ソースは上書き
 
     Returns:
         bool: 保存した場合 True、スキップした場合 False
     """
-    # 【NEW】事前チェック（JPXリスト外の銘柄を除外）
     if not ticker_exists(ticker_code):
         return False
 
@@ -264,10 +265,14 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             """, (ticker_code, fiscal_year, fiscal_quarter))
             existing = cursor.fetchone()
 
-            # スキップ判定: TDnet データで既存が EDINET
-            if existing and existing['source'] == 'EDINET' and source == 'TDnet':
-                print(f"    [SKIP] EDINETデータ存在のためスキップ: {ticker_code} {fiscal_year} {fiscal_quarter}")
-                return False
+            # スキップ判定: 低優先度ソースが高優先度データを上書きしない
+            if existing:
+                existing_priority = SOURCE_PRIORITY.get(existing['source'], 0)
+                new_priority = SOURCE_PRIORITY.get(source, 0)
+                if new_priority < existing_priority:
+                    print(f"    [SKIP] 優先度の高いデータが存在: {ticker_code} {fiscal_year} {fiscal_quarter} "
+                          f"(既存: {existing['source']}, 新規: {source})")
+                    return False
 
             # 通常の INSERT/UPDATE 処理
             conn.execute("""

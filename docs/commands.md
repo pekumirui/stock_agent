@@ -57,6 +57,12 @@ python scripts/fetch_financials.py --days 30
 
 # EDINET決算取得（処理済みも再取得）
 python scripts/fetch_financials.py --days 30 --force
+
+# 四半期報告書も取得（法改正前のQ1/Q3初期投入用）
+python scripts/fetch_financials.py --include-quarterly --days 1095
+
+# 四半期報告書取得（特定銘柄のみ）
+python scripts/fetch_financials.py --include-quarterly --ticker 7203 --days 1095
 ```
 
 ## テスト

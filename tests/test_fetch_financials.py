@@ -20,6 +20,7 @@ from fetch_financials import (
     _is_jppfs_namespace,
     _is_supported_namespace,
     _is_current_period_context,
+    _detect_edinet_quarter,
     extract_edinet_zip,
 )
 from xbrlp import QName
@@ -371,3 +372,104 @@ class TestExtractEdinetZip:
             assert 'Attachment' in str(result[1])
         finally:
             self._cleanup_result(result)
+
+
+class TestDetectEdinetQuarter:
+    """EDINET書類情報からのfiscal_year/fiscal_quarter判定テスト"""
+
+    def test_annual_report(self):
+        """有価証券報告書(120) → FY"""
+        doc = {'docTypeCode': '120', 'periodEnd': '2024-03-31', 'docDescription': '有価証券報告書'}
+        year, quarter = _detect_edinet_quarter(doc)
+        assert quarter == 'FY'
+        assert year == '2024'
+
+    def test_semiannual_report(self):
+        """半期報告書(160) → Q2"""
+        doc = {'docTypeCode': '160', 'periodEnd': '2023-09-30', 'docDescription': '半期報告書'}
+        year, quarter = _detect_edinet_quarter(doc)
+        assert quarter == 'Q2'
+
+    def test_quarterly_report_q1(self):
+        """四半期報告書(140) 第1四半期 → Q1"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-06-30',
+            'docDescription': '第1四半期報告書',
+        }
+        _, quarter = _detect_edinet_quarter(doc)
+        assert quarter == 'Q1'
+
+    def test_quarterly_report_q3(self):
+        """四半期報告書(140) 第3四半期 → Q3"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-12-31',
+            'docDescription': '第3四半期報告書',
+        }
+        _, quarter = _detect_edinet_quarter(doc)
+        assert quarter == 'Q3'
+
+    def test_quarterly_report_q2(self):
+        """四半期報告書(140) 第2四半期（例外的） → Q2"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-09-30',
+            'docDescription': '第2四半期報告書',
+        }
+        _, quarter = _detect_edinet_quarter(doc)
+        assert quarter == 'Q2'
+
+    def test_fiscal_year_from_doc_description(self):
+        """docDescriptionから年度を抽出（2024年3月期Q1）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-06-30',
+            'docDescription': '2024年3月期 第1四半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2024'
+        assert quarter == 'Q1'
+
+    def test_fiscal_year_from_doc_description_q3(self):
+        """docDescriptionから年度を抽出（2024年3月期Q3）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-12-31',
+            'docDescription': '2024年3月期 第3四半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2024'
+        assert quarter == 'Q3'
+
+    def test_fiscal_year_fallback_to_period_end(self):
+        """docDescriptionに年度がない場合、periodEndから取得"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-06-30',
+            'docDescription': '第1四半期報告書',
+        }
+        year, _ = _detect_edinet_quarter(doc)
+        assert year == '2023'  # periodEnd[:4]へフォールバック
+
+    def test_december_fiscal_year_q1(self):
+        """12月決算企業のQ1（2024年12月期 第1四半期）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2024-03-31',
+            'docDescription': '2024年12月期 第1四半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2024'
+        assert quarter == 'Q1'
+
+    def test_no_doc_description(self):
+        """docDescriptionが空の場合のフォールバック"""
+        doc = {
+            'docTypeCode': '140',
+            'periodEnd': '2023-06-30',
+            'docDescription': '',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2023'
+        assert quarter == 'Q1'  # フォールバック
