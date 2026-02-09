@@ -195,6 +195,86 @@ class TestInsertFinancialWithOutOfScopeTicker:
             assert row['revenue'] == 100.0
 
 
+class TestInsertFinancialCoalesce:
+    """insert_financial の COALESCE 動作テスト（Noneで既存データが上書きされないこと）"""
+
+    def test_null_does_not_overwrite_existing(self, sample_company):
+        """Noneフィールドが既存の非Null値を上書きしないこと"""
+        # 1回目: 全フィールドを持つデータを挿入
+        insert_financial(
+            ticker_code='9999',
+            fiscal_year='2024',
+            fiscal_quarter='FY',
+            revenue=1000.0,
+            gross_profit=400.0,
+            operating_income=200.0,
+            ordinary_income=210.0,
+            net_income=150.0,
+            eps=100.0,
+            source='TDnet',
+        )
+
+        # 2回目: 一部フィールドがNoneのデータで上書き（訂正版を想定）
+        insert_financial(
+            ticker_code='9999',
+            fiscal_year='2024',
+            fiscal_quarter='FY',
+            revenue=1050.0,       # 訂正で変更
+            gross_profit=None,    # 訂正版にはない
+            operating_income=None,
+            ordinary_income=220.0,  # 訂正で変更
+            net_income=160.0,       # 訂正で変更
+            eps=None,             # 訂正版にはない
+            source='TDnet',
+        )
+
+        # 検証: Noneフィールドは元の値が保持され、非Noneフィールドは更新される
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='FY'"
+            ).fetchone()
+            assert row['revenue'] == 1050.0, "非Null値は更新されるべき"
+            assert row['gross_profit'] == 400.0, "Noneで既存値が上書きされてはいけない"
+            assert row['operating_income'] == 200.0, "Noneで既存値が上書きされてはいけない"
+            assert row['ordinary_income'] == 220.0, "非Null値は更新されるべき"
+            assert row['net_income'] == 160.0, "非Null値は更新されるべき"
+            assert row['eps'] == 100.0, "Noneで既存値が上書きされてはいけない"
+
+    def test_all_null_preserves_existing(self, sample_company):
+        """全フィールドNoneでも既存データが保持されること"""
+        insert_financial(
+            ticker_code='9999',
+            fiscal_year='2024',
+            fiscal_quarter='Q2',
+            revenue=500.0,
+            gross_profit=200.0,
+            operating_income=100.0,
+            ordinary_income=105.0,
+            net_income=70.0,
+            eps=50.0,
+            source='TDnet',
+        )
+
+        # 全財務フィールドNoneで上書き試行
+        insert_financial(
+            ticker_code='9999',
+            fiscal_year='2024',
+            fiscal_quarter='Q2',
+            source='TDnet',
+        )
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q2'"
+            ).fetchone()
+            assert row['revenue'] == 500.0
+            assert row['gross_profit'] == 200.0
+            assert row['operating_income'] == 100.0
+            assert row['ordinary_income'] == 105.0
+            assert row['net_income'] == 70.0
+            assert row['eps'] == 50.0
+
+
 class TestBulkInsertPricesWithOutOfScopeTicker:
     """JPXリスト外の銘柄に対する bulk_insert_prices() のテスト"""
 

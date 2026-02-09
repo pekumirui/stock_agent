@@ -59,6 +59,37 @@ class TestXbrlFactMapping:
         assert XBRL_FACT_MAPPING_IFRS['BasicEarningsLossPerShareIFRSSummaryOfBusinessResults'] == 'eps'
         assert XBRL_FACT_MAPPING_IFRS['DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults'] == 'eps'
 
+    def test_eps_mapping_tdnet(self):
+        """TDnet EPS要素（tse-ed-t/jpigp_cor名前空間）が正しくマッピングされること"""
+        tdnet_eps_elements = [
+            'NetIncomePerShare',
+            'DilutedNetIncomePerShare',
+            'DilutedEarningsPerShareIFRS',
+            'DilutedEarningsLossPerShareIFRS',
+            'NetIncomePerShareUS',
+            'BasicAndDilutedEarningsLossPerShareIFRS',
+        ]
+        for elem in tdnet_eps_elements:
+            assert XBRL_FACT_MAPPING_IFRS[elem] == 'eps', f"{elem} should map to eps"
+
+    def test_tdnet_revenue_mapping(self):
+        """TDnet売上要素（tse-ed-t/jpigp_cor名前空間）が正しくマッピングされること"""
+        tdnet_revenue_elements = [
+            'OperatingRevenues', 'OrdinaryRevenuesBK', 'OrdinaryRevenuesIN',
+            'OperatingRevenuesSE', 'NetSalesIFRS', 'OperatingRevenuesIFRS',
+            'NetSalesUS',
+        ]
+        for elem in tdnet_revenue_elements:
+            assert XBRL_FACT_MAPPING_IFRS[elem] == 'revenue', f"{elem} should map to revenue"
+
+    def test_tdnet_net_income_mapping(self):
+        """TDnet純利益要素（tse-ed-t/jpigp_cor名前空間）が正しくマッピングされること"""
+        assert XBRL_FACT_MAPPING_IFRS['ProfitAttributableToOwnersOfParent'] == 'net_income'
+        assert XBRL_FACT_MAPPING_IFRS['ProfitLossIFRS'] == 'net_income'
+        assert XBRL_FACT_MAPPING_IFRS['ProfitIFRS'] == 'net_income'
+        assert XBRL_FACT_MAPPING_IFRS['NetIncomeUS'] == 'net_income'
+        assert XBRL_FACT_MAPPING_IFRS['OperatingIncomeUS'] == 'operating_income'
+
     def test_revenue_industry_variants(self):
         """業種別売上高バリエーションが正しくマッピングされること"""
         industry_variants = [
@@ -68,6 +99,7 @@ class TestXbrlFactMapping:
             'NetSalesAndOperatingRevenue',
             'BusinessRevenue', 'TotalOperatingRevenue',
             'OrdinaryIncomeBNK',
+            'OperatingRevenueINV', 'OperatingRevenueIVT', 'OperatingRevenueCMD',
         ]
         for variant in industry_variants:
             assert XBRL_FACT_MAPPING[variant] == 'revenue', f"{variant} should map to revenue"

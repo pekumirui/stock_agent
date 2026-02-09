@@ -475,9 +475,9 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
             missing = [k for k, v in fields.items() if v is None]
             detail = ", ".join(f"{k}={v}" for k, v in fields.items())
             if missing:
-                print(f"    [一部欠損] {detail}（欠損: {', '.join(missing)}）")
+                print(f"    [一部欠損] [{ticker_code} {fiscal_year}{fiscal_quarter}] {detail}（欠損: {', '.join(missing)}）")
             else:
-                print(f"    保存完了: {detail}")
+                print(f"    保存完了: [{ticker_code} {fiscal_year}{fiscal_quarter}] {detail}")
             return True
         else:
             # スキップされた（EDINET データが既に存在）
