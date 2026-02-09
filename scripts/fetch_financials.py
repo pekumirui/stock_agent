@@ -12,6 +12,7 @@ https://disclosure.edinet-fsa.go.jp/
     python fetch_financials.py --days 30            # 過去30日分
     python fetch_financials.py --ticker 7203        # 特定銘柄のみ
     python fetch_financials.py --doc-id S100XXXXX   # 特定書類を処理
+    python fetch_financials.py --include-quarterly --days 1095  # Q1/Q3初期投入（過去3年）
 """
 import argparse
 import os
@@ -50,6 +51,7 @@ DOC_TYPE_CODES = {
     '120': '有価証券報告書',
     '130': '訂正有価証券報告書',
     '135': '確認書',
+    '140': '四半期報告書',
     '160': '半期報告書',
     '180': '臨時報告書',
     '220': '自己株券買付状況報告書',
@@ -597,6 +599,51 @@ def ticker_to_edinet_code(ticker_code: str) -> Optional[str]:
         return row['edinet_code'] if row else None
 
 
+def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
+    """
+    EDINET書類情報からfiscal_yearとfiscal_quarterを判定
+
+    docDescriptionから「第N四半期」「YYYY年M月期」等のパターンを抽出。
+    フォールバックとしてperiodEndの年を使用。
+
+    Returns:
+        (fiscal_year: str, fiscal_quarter: str)
+    """
+    doc_type = doc_info.get('docTypeCode', '')
+    period_end = doc_info.get('periodEnd', '')
+    doc_description = doc_info.get('docDescription', '')
+
+    # fiscal_quarter の判定
+    if doc_type == '120':
+        fiscal_quarter = 'FY'
+    elif doc_type == '160':
+        fiscal_quarter = 'Q2'
+    elif doc_type == '140':
+        # 四半期報告書: docDescriptionから「第N四半期」を抽出
+        q_match = re.search(r'第([1-3])四半期', doc_description)
+        if q_match:
+            fiscal_quarter = f'Q{q_match.group(1)}'
+        else:
+            fiscal_quarter = 'Q1'  # フォールバック
+            print(f"    [WARN] 四半期番号が判定できずQ1にフォールバック: {doc_description}")
+    else:
+        fiscal_quarter = 'FY'
+
+    # fiscal_year の判定
+    # docDescriptionから「YYYY年M月期」パターンを抽出（TDnet方式と同じ）
+    year_match = re.search(r'(\d{4})年.*?期', doc_description)
+    if year_match:
+        fiscal_year = year_match.group(1)
+    elif period_end:
+        # フォールバック: periodEndの年（FYには正確だがQ1/Q3には不正確な場合あり）
+        fiscal_year = period_end[:4]
+    else:
+        submit_date = doc_info.get('submitDateTime', '')[:10]
+        fiscal_year = submit_date[:4]
+
+    return fiscal_year, fiscal_quarter
+
+
 def process_document(client: EdinetClient, doc_info: dict,
                      edinet_map: dict = None, processed_ids: set = None) -> bool:
     """
@@ -676,10 +723,7 @@ def process_document(client: EdinetClient, doc_info: dict,
             return False
 
         # 決算期を判定
-        fiscal_year = period_end[:4] if period_end else submit_date[:4]
-        fiscal_quarter = 'FY'  # 有報は通期
-        if doc_type == '160':  # 半期報告書
-            fiscal_quarter = 'Q2'
+        fiscal_year, fiscal_quarter = _detect_edinet_quarter(doc_info)
 
         # DBに保存
         insert_financial(
@@ -720,7 +764,7 @@ def process_document(client: EdinetClient, doc_info: dict,
 
 
 def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
-                     force: bool = False):
+                     force: bool = False, include_quarterly: bool = False):
     """
     決算データを取得
 
@@ -729,6 +773,7 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
         tickers: 対象銘柄リスト（Noneなら全銘柄）
         api_key: EDINET APIキー
         force: Trueなら処理済み書類も再取得
+        include_quarterly: 四半期報告書(docTypeCode=140)も取得するか
     """
     log_id = log_batch_start("fetch_financials")
     processed = 0
@@ -748,9 +793,12 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
             target_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
             print(f"\n[{target_date}]")
 
-            # 有価証券報告書・半期報告書を1回のAPI呼び出しで取得
+            # 書類一覧を取得（有報・半期報・四半期報）
             all_docs = client.get_document_list(target_date)
-            docs = [d for d in all_docs if d.get('docTypeCode') in ('120', '160')]
+            target_types = {'120', '160'}
+            if include_quarterly:
+                target_types.add('140')
+            docs = [d for d in all_docs if d.get('docTypeCode') in target_types]
 
             if not docs:
                 print("  書類なし")
@@ -808,6 +856,8 @@ def main():
     parser.add_argument('--api-key', help='EDINET APIキー（未指定時は環境変数 EDINET_API_KEY）')
     parser.add_argument('--doc-id', help='特定の書類IDを処理')
     parser.add_argument('--force', action='store_true', help='処理済み書類も再取得')
+    parser.add_argument('--include-quarterly', action='store_true',
+                       help='四半期報告書(docTypeCode=140)も取得（法改正前のQ1/Q3初期投入用）')
     args = parser.parse_args()
 
     # APIキー: 引数 > 環境変数
@@ -823,7 +873,8 @@ def main():
         doc_info = {'docID': args.doc_id}
         process_document(client, doc_info)
     else:
-        fetch_financials(days=args.days, tickers=tickers, api_key=api_key, force=args.force)
+        fetch_financials(days=args.days, tickers=tickers, api_key=api_key,
+                        force=args.force, include_quarterly=args.include_quarterly)
 
 
 if __name__ == "__main__":
