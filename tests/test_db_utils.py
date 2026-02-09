@@ -324,3 +324,83 @@ class TestBulkInsertPricesWithOutOfScopeTicker:
 
         inserted = bulk_insert_prices([])
         assert inserted == 0
+
+
+class TestSourcePriority:
+    """データソース優先度のテスト (EDINET > TDnet > yfinance)"""
+
+    def test_yfinance_skips_when_edinet_exists(self, sample_company):
+        """yfinanceデータは既存EDINETデータを上書きしない"""
+        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='EDINET')
+        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        assert result is False
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT revenue, source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['revenue'] == 1000.0
+            assert row['source'] == 'EDINET'
+
+    def test_yfinance_skips_when_tdnet_exists(self, sample_company):
+        """yfinanceデータは既存TDnetデータを上書きしない"""
+        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='TDnet')
+        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        assert result is False
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['source'] == 'TDnet'
+
+    def test_yfinance_inserts_new_data(self, sample_company):
+        """yfinanceデータは新規レコードとして挿入できる"""
+        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        assert result is True
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT revenue, source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['revenue'] == 900.0
+            assert row['source'] == 'yfinance'
+
+    def test_tdnet_overwrites_yfinance(self, sample_company):
+        """TDnetデータはyfinanceデータを上書きする"""
+        insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        result = insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='TDnet')
+        assert result is True
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT revenue, source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['revenue'] == 1000.0
+            assert row['source'] == 'TDnet'
+
+    def test_edinet_overwrites_yfinance(self, sample_company):
+        """EDINETデータはyfinanceデータを上書きする"""
+        insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        result = insert_financial('9999', '2024', 'Q1', revenue=1100.0, source='EDINET')
+        assert result is True
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT revenue, source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['revenue'] == 1100.0
+            assert row['source'] == 'EDINET'
+
+    def test_tdnet_still_skips_edinet(self, sample_company):
+        """TDnetデータは既存EDINETデータを上書きしない（既存動作維持）"""
+        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='EDINET')
+        result = insert_financial('9999', '2024', 'Q1', revenue=950.0, source='TDnet')
+        assert result is False
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT revenue, source FROM financials WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['revenue'] == 1000.0
+            assert row['source'] == 'EDINET'
