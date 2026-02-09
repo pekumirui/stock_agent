@@ -29,7 +29,8 @@
       "Bash(venv/bin/python:*)",
       "Bash(../venv/bin/python:*)",
       "WebFetch(domain:investment.abbamboo.com)",
-      "Bash(gh auth status:*)"
+      "Bash(gh auth status:*)",
+      "Bash(venv/bin/pip install:*)"
     ]
   }
 }

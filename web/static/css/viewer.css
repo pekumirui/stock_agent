@@ -1,0 +1,397 @@
+:root {
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #0d1525;
+    --bg-tertiary: #111d30;
+    --bg-header: #1a2a44;
+    --bg-expanded: #0b1220;
+    --text-primary: #e0e0e0;
+    --text-positive: #00e676;
+    --text-negative: #ff5252;
+    --text-neutral: #b0b0b0;
+    --text-header: #8899bb;
+    --border-color: #1a2a44;
+    --highlight-row: #1a2a55;
+}
+
+/* リセット */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+    font-size: 13px;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.4;
+    overflow-x: auto;
+}
+
+/* コンテナ */
+.viewer-container {
+    min-width: 1400px;
+    padding: 0;
+}
+
+/* ヘッダー */
+.viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.5px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.date-label {
+    color: var(--text-header);
+    font-size: 12px;
+}
+
+.date-picker {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.date-picker::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+}
+
+.record-count {
+    color: var(--text-neutral);
+    font-size: 12px;
+    margin-left: 4px;
+}
+
+/* フィルタバー */
+.filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.filter-checks {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.filter-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.filter-label input[type="checkbox"] {
+    accent-color: #4488cc;
+    cursor: pointer;
+}
+
+.filter-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+.tag-earnings { background-color: #1a3a5c; color: #66aaff; }
+.tag-revision { background-color: #5c1a1a; color: #ff6666; }
+.tag-dividend { background-color: #1a5c3a; color: #66ff99; }
+.tag-other { background-color: #3a3a1a; color: #cccc66; }
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn {
+    background-color: var(--bg-tertiary);
+    color: var(--text-header);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.btn:hover {
+    background-color: var(--bg-header);
+    color: var(--text-primary);
+}
+
+.btn-sm {
+    padding: 3px 10px;
+    font-size: 11px;
+}
+
+/* テーブル */
+.table-wrapper {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(100vh - 110px);
+}
+
+.viewer-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    min-width: 1600px;
+}
+
+/* 列幅 */
+.col-toggle { width: 30px; }
+.col-time { width: 55px; }
+.col-ticker { width: 55px; }
+.col-name { width: 160px; }
+.col-type { width: 50px; }
+.col-period { width: 40px; }
+.col-num { width: 70px; }
+.col-info { width: 120px; }
+
+/* ヘッダー */
+.viewer-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.viewer-table thead th {
+    background-color: var(--bg-header);
+    color: var(--text-header);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 6px 4px;
+    text-align: center;
+    border-bottom: 2px solid var(--border-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.3px;
+}
+
+.section-start {
+    border-left: 1px solid #2a3a55 !important;
+}
+
+/* データ行 */
+.data-row {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.1s;
+}
+
+.data-row:hover {
+    background-color: var(--highlight-row);
+}
+
+.data-row:nth-child(4n+1) {
+    background-color: var(--bg-secondary);
+}
+
+.data-row:nth-child(4n+3) {
+    background-color: var(--bg-primary);
+}
+
+.data-row td {
+    padding: 5px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    font-size: 12px;
+}
+
+/* トグルボタン */
+.toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-header);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: all 0.15s;
+}
+
+.toggle-btn:hover {
+    background-color: var(--bg-header);
+    color: var(--text-primary);
+}
+
+.toggle-btn.expanded {
+    color: var(--text-positive);
+}
+
+/* 列のテキスト配置 */
+.col-time { text-align: center; color: var(--text-neutral); }
+.col-ticker { text-align: center; font-weight: 600; }
+.col-name { text-align: left; padding-left: 8px !important; }
+.col-type { text-align: center; }
+.col-period { text-align: center; color: var(--text-neutral); }
+.col-num { text-align: right; padding-right: 8px !important; }
+.col-info { text-align: left; padding-left: 8px !important; color: var(--text-neutral); font-size: 11px; }
+
+/* バッジ */
+.badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+.badge-earnings { background-color: #1a3a5c; color: #66aaff; }
+.badge-revision { background-color: #5c1a1a; color: #ff6666; }
+.badge-dividend { background-color: #1a5c3a; color: #66ff99; }
+.badge-other { background-color: #3a3a1a; color: #cccc66; }
+
+/* 値の色 */
+.positive { color: var(--text-positive) !important; }
+.negative { color: var(--text-negative) !important; }
+
+/* 展開行 */
+.detail-row {
+    background-color: var(--bg-expanded) !important;
+}
+
+.detail-row td {
+    padding: 0 !important;
+}
+
+.detail-row.visible {
+    display: table-row;
+}
+
+/* 展開行コンテンツ */
+.detail-container {
+    padding: 12px 16px 12px 40px;
+    border-left: 3px solid #2a4a6c;
+}
+
+.detail-title {
+    color: var(--text-header);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    letter-spacing: 0.3px;
+}
+
+.detail-table {
+    width: auto;
+    border-collapse: collapse;
+    margin-bottom: 10px;
+}
+
+.detail-table caption {
+    text-align: left;
+    color: var(--text-neutral);
+    font-size: 11px;
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.detail-table th,
+.detail-table td {
+    padding: 3px 12px;
+    font-size: 11px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.detail-table th {
+    color: var(--text-header);
+    font-weight: 500;
+    background-color: var(--bg-tertiary);
+}
+
+.detail-table td {
+    color: var(--text-primary);
+}
+
+.detail-table .row-label {
+    text-align: left;
+    color: var(--text-neutral);
+    font-weight: 500;
+    width: 80px;
+}
+
+.detail-empty {
+    color: var(--text-neutral);
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* データなし */
+.no-data {
+    text-align: center !important;
+    color: var(--text-neutral);
+    padding: 40px 16px !important;
+    font-size: 14px;
+}
+
+/* htmx読込中 */
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+tbody.htmx-settling tr.detail-row {
+    opacity: 0;
+}
+
+/* スクロールバーカスタマイズ */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-header);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #2a4a6c;
+}
+
+/* レスポンシブ: 小さい画面では水平スクロール */
+@media (max-width: 1600px) {
+    .viewer-container {
+        min-width: auto;
+    }
+}

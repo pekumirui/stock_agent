@@ -1,3 +1,7 @@
+---
+paths: scripts/featch_financials.py,scripts/featch_tdnet.py
+---
+
 # XBRLタクソノミ - 要素名マッピングガイド
 
 ## 概要
@@ -47,6 +51,17 @@ EDINET/TDnetのXBRL財務データパースでは、会計基準・業種ごと�
 | `RevenueIFRS` | EDINET IFRS対応 |
 | `OperatingRevenueIFRS` | IFRS営業収益 |
 
+### TDnet (tse-ed-t / jpigp_cor)
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `OperatingRevenues` | tse-ed-t | 営業収益（一般企業） |
+| `OrdinaryRevenuesBK` | tse-ed-t | 銀行業経常収益 |
+| `OrdinaryRevenuesIN` | tse-ed-t | 保険業経常収益 |
+| `OperatingRevenuesSE` | tse-ed-t | サービス業営業収益 |
+| `NetSalesIFRS` | tse-ed-t / jpigp_cor | IFRS売上高 |
+| `OperatingRevenuesIFRS` | tse-ed-t | IFRS営業収益 |
+| `NetSalesUS` | tse-ed-t | US-GAAP売上高 |
+
 ### 有報 経営指標サマリー (jpcrp_cor)
 P/L本表とは別に、有報の「経営指標等の推移」セクションにも売上高が記載される。
 要素名は `*SummaryOfBusinessResults` サフィックス付き（例: `NetSalesSummaryOfBusinessResults`）。
@@ -80,6 +95,96 @@ US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有�
 
 **制限**: US-GAAPサマリーには gross_profit, operating_income の要素が含まれない。
 半期報告書のXBRLにはUS-GAAP P/L名前空間（`jpus_cor`等）が含まれないため、これらは取得不可。
+
+## EPSの要素名
+
+### 日本基準 (jppfs_cor / jpcrp_cor)
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `BasicEarningsLossPerShare` | jppfs_cor | 基本的1株当たり利益（P/L本表） |
+| `EarningsPerShare` | jppfs_cor | 1株当たり利益（代替名） |
+| `BasicEarningsLossPerShareSummaryOfBusinessResults` | jpcrp_cor | 有報サマリー EPS |
+| `DilutedEarningsPerShareSummaryOfBusinessResults` | jpcrp_cor | 有報サマリー 希薄化後EPS |
+
+### TDnet 日本基準 (tse-ed-t)
+| 要素名 | 説明 |
+|---|---|
+| `NetIncomePerShare` | 1株当たり当期純利益（最頻出） |
+| `DilutedNetIncomePerShare` | 希薄化後1株当たり当期純利益 |
+
+### IFRS
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `BasicEarningsLossPerShare` | ifrs-full | IFRS標準（日本基準と共通名） |
+| `DilutedEarningsLossPerShare` | ifrs-full | IFRS標準 希薄化後 |
+| `BasicEarningsPerShareIFRS` | tse-ed-t | TDnet IFRS用 |
+| `BasicEarningsLossPerShareIFRS` | jpigp_cor | EDINET IFRS用 |
+| `DilutedEarningsPerShareIFRS` | tse-ed-t | TDnet IFRS 希薄化後 |
+| `DilutedEarningsLossPerShareIFRS` | jpigp_cor | EDINET IFRS 希薄化後 |
+| `BasicAndDilutedEarningsLossPerShareIFRS` | jpigp_cor | 基本的・希薄化後が同値の場合の統合要素 |
+| `BasicEarningsLossPerShareIFRSSummaryOfBusinessResults` | jpcrp_cor | 有報サマリー IFRS EPS |
+| `DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults` | jpcrp_cor | 有報サマリー IFRS 希薄化後EPS |
+
+### US-GAAP (tse-ed-t)
+| 要素名 | 説明 |
+|---|---|
+| `NetIncomePerShareUS` | TDnet US-GAAP 1株当たり利益 |
+
+## 純利益の要素名
+
+### 日本基準 (jppfs_cor)
+| 要素名 | 説明 |
+|---|---|
+| `ProfitLoss` | 当期純利益 |
+| `NetIncome` | 当期純利益（代替名） |
+| `ProfitLossAttributableToOwnersOfParent` | 親会社株主に帰属する当期純利益 |
+
+### IFRS
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `ProfitLossAttributableToOwnersOfParent` | ifrs-full | 親会社所有者帰属利益（標準） |
+| `ProfitLoss` | ifrs-full | 当期利益 |
+| `ProfitLossAttributableToOwnersOfParentIFRS` | jpigp_cor | EDINET IFRS親会社帰属利益 |
+| `ProfitAttributableToOwnersOfParentIFRS` | tse-ed-t | TDnet IFRS親会社帰属利益 |
+
+### TDnet (tse-ed-t / jpigp_cor)
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `ProfitAttributableToOwnersOfParent` | tse-ed-t | 親会社株主帰属利益（Loss無し版） |
+| `ProfitLossIFRS` | jpigp_cor | IFRS純利益 |
+| `ProfitIFRS` | tse-ed-t | TDnet IFRS利益 |
+| `NetIncomeUS` | tse-ed-t | US-GAAP純利益 |
+
+### 有報サマリー (jpcrp_cor)
+| 要素名 | 説明 |
+|---|---|
+| `ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults` | IFRS有報サマリー 親会社帰属利益 |
+
+## 営業利益の要素名
+
+### 日本基準 (jppfs_cor)
+| 要素名 | 説明 |
+|---|---|
+| `OperatingIncome` | 営業利益 |
+| `OperatingProfit` | 営業利益（代替名） |
+
+### IFRS
+| 要素名 | 名前空間 | 説明 |
+|---|---|---|
+| `ProfitLossFromOperatingActivities` | ifrs-full | 営業活動利益 |
+| `OperatingProfitLoss` | ifrs-full | 営業損益 |
+| `OperatingProfitLossIFRS` | jpigp_cor | EDINET IFRS営業利益 |
+| `OperatingIncomeIFRS` | tse-ed-t | TDnet IFRS営業利益 |
+
+### TDnet (tse-ed-t)
+| 要素名 | 説明 |
+|---|---|
+| `OperatingIncomeUS` | US-GAAP営業利益 |
+
+### 有報サマリー (jpcrp_cor)
+| 要素名 | 説明 |
+|---|---|
+| `OperatingProfitLossIFRSSummaryOfBusinessResults` | IFRS有報サマリー 営業利益 |
 
 ## 売上総利益の要素名
 

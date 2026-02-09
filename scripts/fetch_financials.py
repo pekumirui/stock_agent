@@ -77,6 +77,9 @@ XBRL_FACT_MAPPING = {
     'OrdinaryIncomeINS': 'revenue',                              # 保険業（経常収益）
     'OperatingIncomeINS': 'revenue',                             # 保険業（営業収益）
     'TotalOperatingRevenue': 'revenue',                          # 営業収益合計
+    'OperatingRevenueINV': 'revenue',                              # 投資業
+    'OperatingRevenueIVT': 'revenue',                              # IVT業
+    'OperatingRevenueCMD': 'revenue',                              # CMD業
     # 売上高（有価証券報告書 経営指標サマリー - jpcrp_cor）
     'NetSalesSummaryOfBusinessResults': 'revenue',
     'OperatingRevenue1SummaryOfBusinessResults': 'revenue',
@@ -160,6 +163,28 @@ XBRL_FACT_MAPPING_IFRS = {
     'BasicEarningsLossPerShareIFRS': 'eps',  # EDINET jpigp_cor用
     'BasicEarningsLossPerShareIFRSSummaryOfBusinessResults': 'eps',    # EDINET有報
     'DilutedEarningsLossPerShareIFRSSummaryOfBusinessResults': 'eps',  # EDINET有報（希薄化後）
+    # TDnet EPS（tse-ed-t / jpigp_cor名前空間）
+    'NetIncomePerShare': 'eps',                         # TDnet日本基準EPS（tse-ed-t）
+    'DilutedNetIncomePerShare': 'eps',                  # TDnet日本基準 希薄化後EPS（tse-ed-t）
+    'DilutedEarningsPerShareIFRS': 'eps',               # TDnet IFRS 希薄化後EPS（tse-ed-t）
+    'DilutedEarningsLossPerShareIFRS': 'eps',           # IFRS 希薄化後EPS（jpigp_cor）
+    'NetIncomePerShareUS': 'eps',                       # TDnet US-GAAP EPS（tse-ed-t）
+    'BasicAndDilutedEarningsLossPerShareIFRS': 'eps',   # IFRS 基本/希薄化統合EPS（jpigp_cor）
+    # TDnet 売上（tse-ed-t / jpigp_cor名前空間）
+    'OperatingRevenues': 'revenue',          # TDnet営業収益（tse-ed-t）
+    'OrdinaryRevenuesBK': 'revenue',         # TDnet銀行業経常収益（tse-ed-t）
+    'OrdinaryRevenuesIN': 'revenue',         # TDnet保険業経常収益（tse-ed-t）
+    'OperatingRevenuesSE': 'revenue',        # TDnetサービス業営業収益（tse-ed-t）
+    'NetSalesIFRS': 'revenue',               # TDnet IFRS売上高（tse-ed-t/jpigp_cor）
+    'OperatingRevenuesIFRS': 'revenue',      # TDnet IFRS営業収益（tse-ed-t）
+    'NetSalesUS': 'revenue',                 # TDnet US-GAAP売上高（tse-ed-t）
+    # TDnet 純利益（tse-ed-t / jpigp_cor名前空間）
+    'ProfitAttributableToOwnersOfParent': 'net_income',  # TDnet親会社帰属利益（tse-ed-t）※Lossなし版
+    'ProfitLossIFRS': 'net_income',                       # IFRS純利益（jpigp_cor）
+    'ProfitIFRS': 'net_income',                            # TDnet IFRS利益（tse-ed-t）
+    'NetIncomeUS': 'net_income',                           # TDnet US-GAAP純利益（tse-ed-t）
+    # TDnet 営業利益（tse-ed-t名前空間）
+    'OperatingIncomeUS': 'operating_income',  # TDnet US-GAAP営業利益（tse-ed-t）
 }
 
 # レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
