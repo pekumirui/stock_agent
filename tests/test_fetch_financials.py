@@ -167,6 +167,24 @@ class TestXbrlFactMapping:
         assert XBRL_FACT_MAPPING['OperatingIncomeINS'] == 'revenue'
         assert XBRL_FACT_MAPPING['OrdinaryIncomeINSSummaryOfBusinessResults'] == 'revenue'
 
+    def test_usgaap_summary_mappings(self):
+        """US-GAAP有報サマリーのマッピング確認"""
+        assert XBRL_FACT_MAPPING['ProfitLossBeforeTaxUSGAAPSummaryOfBusinessResults'] == 'ordinary_income'
+        assert XBRL_FACT_MAPPING['NetIncomeLossAttributableToOwnersOfParentUSGAAPSummaryOfBusinessResults'] == 'net_income'
+        assert XBRL_FACT_MAPPING['BasicEarningsLossPerShareUSGAAPSummaryOfBusinessResults'] == 'eps'
+        assert XBRL_FACT_MAPPING['DilutedEarningsLossPerShareUSGAAPSummaryOfBusinessResults'] == 'eps'
+
+    def test_usgaap_summary_in_jppfs_mapping(self):
+        """US-GAAPサマリーもjpcrp_corなのでXBRL_FACT_MAPPING側にあること"""
+        usgaap_keys = [
+            'ProfitLossBeforeTaxUSGAAPSummaryOfBusinessResults',
+            'NetIncomeLossAttributableToOwnersOfParentUSGAAPSummaryOfBusinessResults',
+            'BasicEarningsLossPerShareUSGAAPSummaryOfBusinessResults',
+        ]
+        for key in usgaap_keys:
+            assert key in XBRL_FACT_MAPPING, f"{key} should be in XBRL_FACT_MAPPING"
+            assert key not in XBRL_FACT_MAPPING_IFRS, f"{key} should NOT be in XBRL_FACT_MAPPING_IFRS"
+
     def test_all_db_fields_covered(self):
         """全DBフィールドがマッピングに含まれること"""
         expected_fields = {'revenue', 'gross_profit', 'operating_income',

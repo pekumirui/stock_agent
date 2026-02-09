@@ -109,17 +109,23 @@ XBRL_FACT_MAPPING = {
     'OrdinaryProfit': 'ordinary_income',
     # 経常利益（IFRS有報/半期報サマリー - jpcrp_cor、税引前利益）
     'ProfitLossBeforeTaxIFRSSummaryOfBusinessResults': 'ordinary_income',
+    # 経常利益（US-GAAP有報/半期報サマリー - jpcrp_cor、税引前利益）
+    'ProfitLossBeforeTaxUSGAAPSummaryOfBusinessResults': 'ordinary_income',
     # 当期純利益
     'ProfitLoss': 'net_income',
     'NetIncome': 'net_income',
     'ProfitLossAttributableToOwnersOfParent': 'net_income',
     # 当期純利益（IFRS有報/半期報サマリー - jpcrp_cor）
     'ProfitLossAttributableToOwnersOfParentIFRSSummaryOfBusinessResults': 'net_income',
+    # 当期純利益（US-GAAP有報/半期報サマリー - jpcrp_cor）
+    'NetIncomeLossAttributableToOwnersOfParentUSGAAPSummaryOfBusinessResults': 'net_income',
     # EPS
     'BasicEarningsLossPerShare': 'eps',
     'EarningsPerShare': 'eps',
     'BasicEarningsLossPerShareSummaryOfBusinessResults': 'eps',  # EDINET有報・半期報
     'DilutedEarningsPerShareSummaryOfBusinessResults': 'eps',    # EDINET有報・半期報（希薄化後）
+    'BasicEarningsLossPerShareUSGAAPSummaryOfBusinessResults': 'eps',     # US-GAAP有報・半期報
+    'DilutedEarningsLossPerShareUSGAAPSummaryOfBusinessResults': 'eps',   # US-GAAP有報・半期報（希薄化後）
 }
 
 # IFRS用マッピング（IFRS採用企業向け）
