@@ -88,7 +88,7 @@ python3 scripts/run_daily_batch.py --skip-financials --skip-tdnet
 5. 決算短信取得（TDnet: Q1-Q4決算短信）
 
 **TDnet統合の背景**:
-2024年4月の金商法改正により、Q1/Q3四半期報告書のEDINET提出が廃止されました。そのため、Q1/Q3の決算データはTDnet決算短信からしか取得できません。TDnetは過去30日分しか取得できないため、取りこぼしを防ぐために日次バッチに統合しています。
+2024年4月の金商法改正により、Q1/Q3四半期報告書のEDINET提出が廃止されました。そのため、Q1/Q3の決算データはTDnet決算短信からしか取得できません。TDnetは過去30日分しか取得できないため、取りこぼしを防ぐために日次バッチに統合しています。なお、法改正前（2024年3月以前）のQ1/Q3データを初期投入する場合は、`fetch_financials.py --include-quarterly` で過去の四半期報告書を取得できます。
 
 ### cron設定（毎日18:00に実行）
 
@@ -182,11 +182,16 @@ python3 scripts/fetch_financials.py --ticker 7203
 
 # 処理済み書類も再取得（通常は自動スキップ）
 python3 scripts/fetch_financials.py --force
+
+# 四半期報告書も含める（法改正前のQ1/Q3取得用）
+python3 scripts/fetch_financials.py --include-quarterly --days 1095
+python3 scripts/fetch_financials.py --include-quarterly --ticker 7203 --days 1095
 ```
 
 **対応書類種別**:
 - **有価証券報告書（docType=120）**: 通期決算（fiscal_quarter=FY）
 - **半期報告書（docType=160）**: 上期決算（fiscal_quarter=Q2）
+- **四半期報告書（docType=140）**: Q1/Q3決算（`--include-quarterly` 指定時のみ）
 
 **パフォーマンス最適化**:
 - EDINETコード→証券コードのマッピングを起動時に一括ロード
@@ -216,7 +221,8 @@ python3 scripts/fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05
 **データソース戦略**:
 - **TDnet**: 決算短信（速報版）、当日リアルタイム取得
 - **EDINET**: 有価証券報告書（正式版）、数週間～数ヶ月遅れ
-- **上書きルール**: EDINETがTDnetを上書き（正式版優先）
+- **yfinance**: 株価データ（参考情報）
+- **上書きルール**: 3段階優先度（EDINET: 3 > TDnet: 2 > yfinance: 1）により、低優先度ソースが高優先度データを上書きしない仕組み
 
 ### 銘柄マスタ (init_companies.py)
 
