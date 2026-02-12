@@ -25,6 +25,7 @@ import tempfile
 import time
 import re
 import json
+import unicodedata
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -613,6 +614,9 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
     period_end = doc_info.get('periodEnd', '')
     doc_description = doc_info.get('docDescription', '')
 
+    # 全角数字→半角数字に正規化（防御的: EDINETは通常半角だが念のため）
+    normalized_desc = unicodedata.normalize('NFKC', doc_description)
+
     # fiscal_quarter の判定
     if doc_type == '120':
         fiscal_quarter = 'FY'
@@ -620,7 +624,7 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
         fiscal_quarter = 'Q2'
     elif doc_type == '140':
         # 四半期報告書: docDescriptionから「第N四半期」を抽出
-        q_match = re.search(r'第([1-3])四半期', doc_description)
+        q_match = re.search(r'第([1-3])四半期', normalized_desc)
         if q_match:
             fiscal_quarter = f'Q{q_match.group(1)}'
         else:
@@ -631,7 +635,7 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
 
     # fiscal_year の判定
     # docDescriptionから「YYYY年M月期」パターンを抽出（TDnet方式と同じ）
-    year_match = re.search(r'(\d{4})年.*?期', doc_description)
+    year_match = re.search(r'(\d{4})年.*?期', normalized_desc)
     if year_match:
         fiscal_year = year_match.group(1)
     elif period_end:

@@ -81,6 +81,42 @@ class TestFiscalPeriodDetection:
         )
         assert fiscal_year == "2024"  # 発表日から推定
 
+    def test_q1_fullwidth_detection(self):
+        """第１四半期の判定（全角数字）"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "2026年９月期第１四半期決算短信〔ＩＦＲＳ〕（連結）",
+            "2026-02-12"
+        )
+        assert fiscal_year == "2026"
+        assert quarter == "Q1"
+
+    def test_q3_fullwidth_detection(self):
+        """第３四半期の判定（全角数字）"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "2026年３月期第３四半期決算短信〔日本基準〕（非連結）",
+            "2026-02-12"
+        )
+        assert fiscal_year == "2026"
+        assert quarter == "Q3"
+
+    def test_fullwidth_year_and_quarter(self):
+        """全角年度+全角四半期の判定"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "２０２６年３月期第３四半期決算短信〔日本基準〕(連結)",
+            "2026-02-10"
+        )
+        assert fiscal_year == "2026"
+        assert quarter == "Q3"
+
+    def test_fullwidth_fy_detection(self):
+        """全角数字でも通期キーワードがあればFY"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "２０２５年12月期通期決算短信〔日本基準〕（連結）",
+            "2026-02-10"
+        )
+        assert fiscal_year == "2025"
+        assert quarter == "FY"
+
     def test_fallback_quarter_from_month(self):
         """四半期のフォールバック（発表月から推定）"""
         # 6月 → Q1

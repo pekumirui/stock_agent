@@ -193,6 +193,8 @@ python3 scripts/fetch_financials.py --include-quarterly --ticker 7203 --days 109
 - **半期報告書（docType=160）**: 上期決算（fiscal_quarter=Q2）
 - **四半期報告書（docType=140）**: Q1/Q3決算（`--include-quarterly` 指定時のみ）
 
+**決算期判定の堅牢性**: EDINET書類の`docDescription`から決算期を判定する際、全角数字が含まれる場合でもUnicode正規化（NFKC）により正しく処理されます。
+
 **パフォーマンス最適化**:
 - EDINETコード→証券コードのマッピングを起動時に一括ロード
 - 処理済み書類は自動スキップ（`--force`で無効化可能）
@@ -217,6 +219,8 @@ python3 scripts/fetch_tdnet.py --ticker 7203,6758
 # 日付範囲指定
 python3 scripts/fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05
 ```
+
+**決算期判定の堅牢性**: TDnetは決算短信タイトルに全角数字を使用する場合があります（例: 「２０２６年３月期第３四半期」）。`detect_fiscal_period()`関数は、Unicode正規化（NFKC）により全角数字を自動的に半角に変換してから判定するため、表記揺れに対応しています。
 
 **データソース戦略**:
 - **TDnet**: 決算短信（速報版）、当日リアルタイム取得

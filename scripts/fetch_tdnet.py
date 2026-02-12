@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import time
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -91,9 +92,12 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
         >>> detect_fiscal_period("2024年3月期 通期決算短信", "2024-05-10")
         ("2024", "FY")
     """
+    # 全角数字→半角数字に正規化（TDnetは全角数字を使う場合がある）
+    normalized_title = unicodedata.normalize('NFKC', title)
+
     # 1. 年度を抽出
     fiscal_year = None
-    year_match = re.search(FISCAL_YEAR_PATTERN, title)
+    year_match = re.search(FISCAL_YEAR_PATTERN, normalized_title)
     if year_match:
         fiscal_year = year_match.group(1)
     else:
@@ -104,12 +108,12 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
     fiscal_quarter = 'FY'  # デフォルトは通期
 
     # 通期キーワードチェック
-    is_full_year = any(kw in title for kw in FULL_YEAR_KEYWORDS)
+    is_full_year = any(kw in normalized_title for kw in FULL_YEAR_KEYWORDS)
     if is_full_year:
         fiscal_quarter = 'FY'
     else:
         # 四半期パターンチェック
-        quarter_match = re.search(QUARTER_PATTERN, title)
+        quarter_match = re.search(QUARTER_PATTERN, normalized_title)
         if quarter_match:
             q_num = quarter_match.group(1)
             fiscal_quarter = f'Q{q_num}'
