@@ -1,0 +1,88 @@
+{# --- Macros --- #}
+{% macro fmt_val(val) -%}
+    {%- if val is none -%}-
+    {%- elif val >= 1000000 or val <= -1000000 -%}{{ "{:,.0f}".format(val / 1000) }}千
+    {%- elif val >= 1000 or val <= -1000 -%}{{ "{:,.0f}".format(val) }}
+    {%- else -%}{{ "{:,.1f}".format(val) }}
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_pct(val) -%}
+    {%- if val is none -%}-
+    {%- elif val > 0 -%}<span class="positive">+{{ "{:.1f}".format(val) }}%</span>
+    {%- elif val < 0 -%}<span class="negative">{{ "{:.1f}".format(val) }}%</span>
+    {%- else -%}{{ "{:.1f}".format(val) }}%
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_eps(val) -%}
+    {%- if val is none -%}-
+    {%- else -%}{{ "{:,.1f}".format(val) }}
+    {%- endif -%}
+{%- endmacro %}
+
+{# --- Render a data cell: absolute value + YoY % --- #}
+{% macro data_cell(val, pct, is_eps=false) %}
+<td>
+    <div class="cell-value">{% if is_eps %}{{ fmt_eps(val) }}{% else %}{{ fmt_val(val) }}{% endif %}</div>
+    <div class="cell-pct">{{ fmt_pct(pct) }}</div>
+</td>
+{% endmacro %}
+
+{# --- Render a table --- #}
+{% macro render_table(title, rows, forecast=none) %}
+<div class="detail-section">
+    <div class="section-title">{{ title }}</div>
+    <table class="detail-history-table">
+        <thead>
+            <tr>
+                <th class="col-period-label">決算期</th>
+                <th>売上高</th>
+                <th>営業利益</th>
+                <th>経常利益</th>
+                <th>純利益</th>
+                <th>EPS</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td class="col-period-label">{{ r.label }}</td>
+                {{ data_cell(r.revenue, r.revenue_yoy_pct) }}
+                {{ data_cell(r.operating_income, r.operating_income_yoy_pct) }}
+                {{ data_cell(r.ordinary_income, r.ordinary_income_yoy_pct) }}
+                {{ data_cell(r.net_income, r.net_income_yoy_pct) }}
+                {{ data_cell(r.eps, r.eps_yoy_pct, is_eps=true) }}
+            </tr>
+            {% endfor %}
+            {% if forecast %}
+            <tr class="forecast-row">
+                <td class="col-period-label">会社予想</td>
+                {{ data_cell(forecast.revenue, forecast.revenue_yoy_pct) }}
+                {{ data_cell(forecast.operating_income, forecast.operating_income_yoy_pct) }}
+                {{ data_cell(forecast.ordinary_income, forecast.ordinary_income_yoy_pct) }}
+                {{ data_cell(forecast.net_income, forecast.net_income_yoy_pct) }}
+                {{ data_cell(forecast.eps, forecast.eps_yoy_pct, is_eps=true) }}
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endmacro %}
+
+{# --- Main Panel --- #}
+<div class="financial-detail-panel">
+    <div class="panel-title">{{ data.ticker_code }} {{ data.company_name }}</div>
+
+    {% if not data.cumulative and not data.quarterly %}
+        <p class="detail-empty">業績データがありません</p>
+    {% else %}
+        {% if data.cumulative %}
+            {{ render_table("累計決算", data.cumulative, data.forecast) }}
+        {% endif %}
+
+        {% if data.quarterly %}
+            {{ render_table("3か月決算", data.quarterly) }}
+        {% endif %}
+    {% endif %}
+</div>

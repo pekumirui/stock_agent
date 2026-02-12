@@ -39,51 +39,67 @@
                 <span class="filter-tag tag-other">その他</span>
             </label>
         </div>
-        <div class="filter-actions">
-            <button class="btn btn-sm" @click="expandAll()">全展開</button>
-            <button class="btn btn-sm" @click="collapseAll()">全折畳</button>
-        </div>
     </div>
 
-    <!-- テーブル -->
-    <div class="table-wrapper">
-        <table class="viewer-table">
-            <thead>
-                <tr>
-                    <th class="col-toggle"></th>
-                    <th class="col-time">時刻</th>
-                    <th class="col-ticker">コード</th>
-                    <th class="col-name">企業名</th>
-                    <th class="col-type">種別</th>
-                    <th class="col-period">期</th>
-                    <!-- QoQ 5列 -->
-                    <th class="col-num section-start" title="売上高 前年同期比(単独四半期)">売上QoQ</th>
-                    <th class="col-num" title="売上総利益 前年同期比(単独四半期)">粗利QoQ</th>
-                    <th class="col-num" title="営業利益 前年同期比(単独四半期)">営利QoQ</th>
-                    <th class="col-num" title="経常利益 前年同期比(単独四半期)">経利QoQ</th>
-                    <th class="col-num" title="純利益 前年同期比(単独四半期)">純利QoQ</th>
-                    <!-- YoY 4列 -->
-                    <th class="col-num section-start" title="売上高 前年同期比(累計)">売上YoY</th>
-                    <th class="col-num" title="営業利益 前年同期比(累計)">営利YoY</th>
-                    <th class="col-num" title="経常利益 前年同期比(累計)">経利YoY</th>
-                    <th class="col-num" title="純利益 前年同期比(累計)">純利YoY</th>
-                    <!-- Con 4列 -->
-                    <th class="col-num section-start" title="売上高 コンセンサス比">売上Con</th>
-                    <th class="col-num" title="営業利益 コンセンサス比">営利Con</th>
-                    <th class="col-num" title="経常利益 コンセンサス比">経利Con</th>
-                    <th class="col-num" title="純利益 コンセンサス比">純利Con</th>
-                    <!-- 情報 -->
-                    <th class="col-info">情報</th>
-                </tr>
-            </thead>
-            <tbody id="table-body"
-                   hx-get="/viewer/table"
-                   hx-trigger="load"
-                   hx-vals='js:{date: document.getElementById("date-picker").value}'
-                   hx-swap="innerHTML">
-                {% include "partials/table_body.html" %}
-            </tbody>
-        </table>
+    <!-- Content Area: 3-panel layout -->
+    <div class="content-area">
+        <!-- Area 1: Main Table -->
+        <div class="table-wrapper">
+            <table class="viewer-table">
+                <thead>
+                    <tr>
+                        <th class="col-time">時刻</th>
+                        <th class="col-ticker">コード</th>
+                        <th class="col-name">企業名</th>
+                        <th class="col-type">種別</th>
+                        <th class="col-period">期</th>
+                        <!-- QoQ 5列 -->
+                        <th class="col-num section-start" title="売上高 前年同期比(単独四半期)">売上QoQ</th>
+                        <th class="col-num" title="売上総利益 前年同期比(単独四半期)">粗利QoQ</th>
+                        <th class="col-num" title="営業利益 前年同期比(単独四半期)">営利QoQ</th>
+                        <th class="col-num" title="経常利益 前年同期比(単独四半期)">経利QoQ</th>
+                        <th class="col-num" title="純利益 前年同期比(単独四半期)">純利QoQ</th>
+                        <!-- YoY 4列 -->
+                        <th class="col-num section-start" title="売上高 前年同期比(累計)">売上YoY</th>
+                        <th class="col-num" title="営業利益 前年同期比(累計)">営利YoY</th>
+                        <th class="col-num" title="経常利益 前年同期比(累計)">経利YoY</th>
+                        <th class="col-num" title="純利益 前年同期比(累計)">純利YoY</th>
+                        <!-- Con 4列 -->
+                        <th class="col-num section-start" title="売上高 コンセンサス比">売上Con</th>
+                        <th class="col-num" title="営業利益 コンセンサス比">営利Con</th>
+                        <th class="col-num" title="経常利益 コンセンサス比">経利Con</th>
+                        <th class="col-num" title="純利益 コンセンサス比">純利Con</th>
+                        <!-- 情報 -->
+                        <th class="col-info">情報</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body"
+                       hx-get="/viewer/table"
+                       hx-trigger="load"
+                       hx-vals='js:{date: document.getElementById("date-picker").value}'
+                       hx-swap="innerHTML">
+                    {% include "partials/table_body.html" %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Bottom Panels -->
+        <div class="bottom-panels">
+            <!-- Area 2: AI Comment (placeholder) -->
+            <div class="ai-comment-panel">
+                <h3 class="panel-title">AIコメント</h3>
+                <p class="detail-empty">準備中...</p>
+            </div>
+
+            <!-- Area 3: Financial Detail -->
+            <div class="financial-detail-wrapper">
+                <div id="financial-detail-target">
+                    <p class="detail-empty" style="padding: 40px 16px; text-align: center;">
+                        テーブルの銘柄をクリックして業績詳細を表示
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
