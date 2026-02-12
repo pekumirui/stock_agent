@@ -174,6 +174,11 @@ SELECT
         ELSE NULL
     END AS revenue_yoy_pct,
     CASE
+        WHEN LAG(f.gross_profit, 1) OVER w IS NOT NULL AND LAG(f.gross_profit, 1) OVER w != 0
+        THEN ROUND((f.gross_profit - LAG(f.gross_profit, 1) OVER w) * 100.0 / ABS(LAG(f.gross_profit, 1) OVER w), 2)
+        ELSE NULL
+    END AS gross_profit_yoy_pct,
+    CASE
         WHEN LAG(f.operating_income, 1) OVER w IS NOT NULL AND LAG(f.operating_income, 1) OVER w != 0
         THEN ROUND((f.operating_income - LAG(f.operating_income, 1) OVER w) * 100.0 / ABS(LAG(f.operating_income, 1) OVER w), 2)
         ELSE NULL

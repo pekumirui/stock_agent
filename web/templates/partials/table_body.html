@@ -43,9 +43,12 @@
     <td class="col-num {{ 'positive' if row.net_income_qoq is not none and row.net_income_qoq > 0 else 'negative' if row.net_income_qoq is not none and row.net_income_qoq < 0 else '' }}">
         {% if row.net_income_qoq is not none %}{{ '{:+.1f}'.format(row.net_income_qoq) }}%{% endif %}
     </td>
-    <!-- YoY 4列 -->
+    <!-- YoY 5列 -->
     <td class="col-num section-start {{ 'positive' if row.revenue_yoy is not none and row.revenue_yoy > 0 else 'negative' if row.revenue_yoy is not none and row.revenue_yoy < 0 else '' }}">
         {% if row.revenue_yoy is not none %}{{ '{:+.1f}'.format(row.revenue_yoy) }}%{% endif %}
+    </td>
+    <td class="col-num {{ 'positive' if row.gross_profit_yoy is not none and row.gross_profit_yoy > 0 else 'negative' if row.gross_profit_yoy is not none and row.gross_profit_yoy < 0 else '' }}">
+        {% if row.gross_profit_yoy is not none %}{{ '{:+.1f}'.format(row.gross_profit_yoy) }}%{% endif %}
     </td>
     <td class="col-num {{ 'positive' if row.operating_income_yoy is not none and row.operating_income_yoy > 0 else 'negative' if row.operating_income_yoy is not none and row.operating_income_yoy < 0 else '' }}">
         {% if row.operating_income_yoy is not none %}{{ '{:+.1f}'.format(row.operating_income_yoy) }}%{% endif %}
@@ -76,6 +79,6 @@
 
 {% if not rows %}
 <tr>
-    <td colspan="19" class="no-data">この日付の決算発表データはありません</td>
+    <td colspan="20" class="no-data">この日付の決算発表データはありません</td>
 </tr>
 {% endif %}
