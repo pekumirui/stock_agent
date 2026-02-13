@@ -237,7 +237,7 @@ def insert_stock_split(ticker_code: str, split_date: str, ratio_from: float, rat
 
 
 # データソース優先度（値が大きいほど優先）
-SOURCE_PRIORITY = {'EDINET': 3, 'TDnet': 2, 'yfinance': 1}
+SOURCE_PRIORITY = {'EDINET': 3, 'TDnet': 2, 'JQuants': 2, 'yfinance': 1}
 
 
 def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **kwargs):

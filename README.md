@@ -21,6 +21,7 @@ stock_agent/
 │   ├── fetch_prices.py     # 株価取得（Yahoo Finance）
 │   ├── fetch_financials.py # 決算取得（EDINET）
 │   ├── fetch_tdnet.py      # 決算短信取得（TDnet）
+│   ├── fetch_jquants_fins.py  # 決算取得（J-Quants API）
 │   ├── update_edinet_codes.py  # EDINETコード一括更新
 │   ├── analyze_missing_edinet.py  # EDINETコード欠損分析
 │   ├── validate_schema.py  # スキーマ検証ツール
@@ -43,7 +44,7 @@ stock_agent/
 ### 1. 必要なパッケージをインストール
 
 ```bash
-pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations fastapi uvicorn jinja2 python-multipart
+pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations fastapi uvicorn jinja2 python-multipart jquants-api-client
 ```
 
 ### 2. 初回セットアップ（銘柄マスタ + サンプルデータ）
@@ -239,8 +240,33 @@ python3 scripts/fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05
 **データソース戦略**:
 - **TDnet**: 決算短信（速報版）、当日リアルタイム取得
 - **EDINET**: 有価証券報告書（正式版）、数週間～数ヶ月遅れ
+- **J-Quants**: 決算短信データをAPI経由で構造化取得（TDnetの補完）
 - **yfinance**: 株価データ（参考情報）
-- **上書きルール**: 3段階優先度（EDINET: 3 > TDnet: 2 > yfinance: 1）により、低優先度ソースが高優先度データを上書きしない仕組み
+- **上書きルール**: 優先度（EDINET: 3 > TDnet/JQuants: 2 > yfinance: 1）により、低優先度ソースが高優先度データを上書きしない仕組み
+
+### 決算取得 - J-Quants API (fetch_jquants_fins.py)
+
+J-Quants APIから決算短信データを構造化して取得します（EDINET/TDnetの補完用）。
+
+```bash
+# 過去7日分の開示データ（デフォルト）
+python3 scripts/fetch_jquants_fins.py
+
+# 過去30日分
+python3 scripts/fetch_jquants_fins.py --days 30
+
+# 特定銘柄の全履歴
+python3 scripts/fetch_jquants_fins.py --ticker 7203,6758
+
+# 既存データも上書き
+python3 scripts/fetch_jquants_fins.py --force
+```
+
+**特徴**:
+- `jquants-api-client`パッケージで認証・ページネーションを自動処理
+- 連結決算を優先、非連結のみの企業はフォールバック
+- EDINET（優先度3）の既存データは上書きしない（JQuants優先度2）
+- `.env`の`JQUANTS_API_KEY`で認証
 
 ### 銘柄マスタ (init_companies.py)
 
@@ -381,6 +407,7 @@ python3 -m pytest tests/test_db_utils.py -v
 | test_fetch_prices.py | 株価取得（実API統合テスト） |
 | test_fetch_financials.py | 決算取得 |
 | test_fetch_tdnet.py | TDnet取得 |
+| test_fetch_jquants_fins.py | J-Quants決算取得 |
 | test_update_edinet_codes.py | EDINETコード更新 |
 | test_analyze_missing_edinet.py | EDINETコード欠損分析 |
 | test_financial_views.py | YoY/QoQビュー |
