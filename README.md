@@ -25,7 +25,8 @@ stock_agent/
 │   ├── analyze_missing_edinet.py  # EDINETコード欠損分析
 │   ├── validate_schema.py  # スキーマ検証ツール
 │   ├── migrate.py          # DBマイグレーション管理
-│   └── run_daily_batch.py  # 日次バッチメイン
+│   ├── run_price_batch.py  # 株価取得バッチ
+│   └── run_disclosure_batch.py  # 開示データ取得バッチ（EDINET+TDnet）
 ├── web/                    # Webビューア
 │   ├── app.py              # FastAPIメインアプリ
 │   ├── routers/            # APIルーター
@@ -49,10 +50,10 @@ pip install yfinance pandas requests openpyxl beautifulsoup4 yoyo-migrations fas
 
 ```bash
 # サンプル銘柄（約30社）でテスト
-python3 scripts/run_daily_batch.py --init --sample
+python3 scripts/run_price_batch.py --init --sample
 
 # または全銘柄（JPXから約4000社取得）
-python3 scripts/run_daily_batch.py --init
+python3 scripts/run_price_batch.py --init
 ```
 
 ### 3. 全履歴取得（初回のみ）
@@ -67,33 +68,44 @@ python3 scripts/fetch_prices.py --full
 ### 手動実行
 
 ```bash
-# 通常実行（株価 + EDINET決算 + TDnet決算短信）
-python3 scripts/run_daily_batch.py
+# 株価取得
+python3 scripts/run_price_batch.py
 
-# TDnet決算短信をスキップ
-python3 scripts/run_daily_batch.py --skip-tdnet
+# 開示データ取得（EDINET + TDnet）
+python3 scripts/run_disclosure_batch.py
 
-# EDINET決算をスキップ
-python3 scripts/run_daily_batch.py --skip-financials
+# EDINET のみ
+python3 scripts/run_disclosure_batch.py --skip-tdnet
 
-# 株価のみ取得
-python3 scripts/run_daily_batch.py --skip-financials --skip-tdnet
+# TDnet のみ
+python3 scripts/run_disclosure_batch.py --skip-edinet
+
+# 直近30日分の開示データ
+python3 scripts/run_disclosure_batch.py --days 30
 ```
 
-**実行ステップ（5段階）**:
+**株価取得バッチ** (`run_price_batch.py`):
 1. データベース初期化
 2. 銘柄マスタ確認
 3. 株価取得（Yahoo Finance）
-4. 決算データ取得（EDINET: 有報・半期報）
-5. 決算短信取得（TDnet: Q1-Q4決算短信）
+
+**開示データ取得バッチ** (`run_disclosure_batch.py`):
+1. データベース初期化
+2. 銘柄マスタ確認
+3. 決算データ取得（EDINET: 有報・半期報・四半期報）
+4. 決算短信取得（TDnet: Q1-Q4決算短信）
 
 **TDnet統合の背景**:
 2024年4月の金商法改正により、Q1/Q3四半期報告書のEDINET提出が廃止されました。そのため、Q1/Q3の決算データはTDnet決算短信からしか取得できません。TDnetは過去30日分しか取得できないため、取りこぼしを防ぐために日次バッチに統合しています。なお、法改正前（2024年3月以前）のQ1/Q3データを初期投入する場合は、`fetch_financials.py --include-quarterly` で過去の四半期報告書を取得できます。
 
-### cron設定（毎日18:00に実行）
+### cron設定例
 
 ```bash
-0 18 * * 1-5 cd /path/to/stock_agent && python3 scripts/run_daily_batch.py >> logs/batch.log 2>&1
+# 株価取得（平日18:00）
+0 18 * * 1-5 cd /path/to/stock_agent && venv/bin/python scripts/run_price_batch.py >> logs/batch.log 2>&1
+
+# 開示データ取得（平日22:00）
+0 22 * * 1-5 cd /path/to/stock_agent && venv/bin/python scripts/run_disclosure_batch.py >> logs/batch.log 2>&1
 ```
 
 ## サポートする証券コード

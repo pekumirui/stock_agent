@@ -36,7 +36,8 @@ stock_agent/
 │   ├── analyze_missing_edinet.py    # EDINETコード欠損分析
 │   ├── validate_schema.py           # スキーマ検証ツール
 │   ├── migrate.py                   # DBマイグレーション管理
-│   └── run_daily_batch.py           # 日次バッチメイン
+│   ├── run_price_batch.py           # 株価取得バッチ
+│   └── run_disclosure_batch.py     # 開示データ取得バッチ（EDINET+TDnet）
 ├── web/                             # Webビューア
 │   ├── app.py                       # FastAPIメインアプリ
 │   ├── routers/

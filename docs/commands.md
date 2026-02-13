@@ -20,7 +20,7 @@ cd /home/pekumirui/stock_agent && venv/bin/python -m uvicorn web.app:app --host 
 
 ```bash
 # 初回セットアップ（サンプル銘柄でテスト）
-python scripts/run_daily_batch.py --init --sample
+python scripts/run_price_batch.py --init --sample
 
 # 銘柄マスタのみ初期化
 python scripts/init_companies.py --sample
@@ -46,11 +46,14 @@ python scripts/update_edinet_codes.py
 # EDINETコード更新（過去30日分から収集）
 python scripts/update_edinet_codes.py --days 30
 
-# 日次バッチ実行（株価 + EDINET + TDnet）
-python scripts/run_daily_batch.py
+# 株価取得バッチ
+python scripts/run_price_batch.py
+
+# 開示データ取得バッチ（EDINET + TDnet）
+python scripts/run_disclosure_batch.py
 
 # TDnetスキップ
-python scripts/run_daily_batch.py --skip-tdnet
+python scripts/run_disclosure_batch.py --skip-tdnet
 
 # EDINET決算取得（処理済みスキップ付き）
 python scripts/fetch_financials.py --days 30
