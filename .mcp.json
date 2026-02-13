@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "j-quants-doc-mcp": {
+      "command": "/home/pekumirui/.local/bin/uvx",
+      "args": ["j-quants-doc-mcp"]
+    }
+  }
+}

@@ -31,6 +31,7 @@ sys.path.insert(0, str(BASE_DIR / "lib"))
 from fetch_financials import (
     parse_ixbrl_financials,
     extract_edinet_zip,
+    _wareki_to_seireki,
 )
 
 from db_utils import (
@@ -94,6 +95,7 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
     """
     # 全角数字→半角数字に正規化（TDnetは全角数字を使う場合がある）
     normalized_title = unicodedata.normalize('NFKC', title)
+    normalized_title = _wareki_to_seireki(normalized_title)
 
     # 1. 年度を抽出
     fiscal_year = None
