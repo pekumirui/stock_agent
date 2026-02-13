@@ -376,13 +376,21 @@ def get_financial_history(ticker_code: str) -> dict:
             "forecast": None,
         }
 
-        # --- ヘルパー: 四半期ソート用数値 ---
+        # --- ヘルパー ---
         _q_order = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
 
-        def _q_label(fy: str, fq: str) -> str:
-            """'2024 1Q' 形式のラベルを生成"""
+        def _normalize_quarter(fq: str) -> str:
+            """Q4 → FY に正規化（FY/Q4マージ用）"""
+            return "FY" if fq in ("FY", "Q4") else fq
+
+        def _q_label_short(fy: str, fq: str) -> str:
+            """'24/FY', '25/2Q' 形式の短ラベルを生成"""
+            short_year = fy[-2:]
+            norm = _normalize_quarter(fq)
+            if norm == "FY":
+                return f"{short_year}/FY"
             num = _q_order.get(fq, 0)
-            return f"{fy} {num}Q"
+            return f"{short_year}/{num}Q"
 
         def _yoy_pct(cur_val, prev_val) -> Optional[float]:
             """YoY%を計算"""
@@ -391,68 +399,102 @@ def get_financial_history(ticker_code: str) -> dict:
             return None
 
         # ==================================================
-        # 1. 累計データ（Q1-Q4、FY除外）直近16行を取得
+        # 1. 累計データ（Q1-Q4 + FY）を取得し、四半期タイプ別にグループ化
         # ==================================================
         cum_cursor = conn.execute(
             """
             SELECT fiscal_year, fiscal_quarter,
                    revenue, operating_income, ordinary_income, net_income, eps
             FROM financials
-            WHERE ticker_code = ? AND fiscal_quarter IN ('Q1','Q2','Q3','Q4')
+            WHERE ticker_code = ?
+              AND fiscal_quarter IN ('Q1','Q2','Q3','Q4','FY')
             ORDER BY fiscal_year DESC,
                      CASE fiscal_quarter
-                         WHEN 'Q4' THEN 4 WHEN 'Q3' THEN 3
+                         WHEN 'FY' THEN 5 WHEN 'Q4' THEN 4 WHEN 'Q3' THEN 3
                          WHEN 'Q2' THEN 2 WHEN 'Q1' THEN 1
                      END DESC
-            LIMIT 16
+            LIMIT 20
             """,
             [ticker_code],
         )
         cum_rows = cum_cursor.fetchall()
         cum_rows = list(reversed(cum_rows))  # oldest first
 
-        # YoY計算用: (fiscal_year, fiscal_quarter) -> row の辞書
+        # オリジナルキーのマップ（単独四半期EPS計算用に維持）
         cum_map: dict[tuple[str, str], sqlite3.Row] = {}
         for r in cum_rows:
             cum_map[(r["fiscal_year"], r["fiscal_quarter"])] = r
 
-        # 直近12件を表示対象とする（先頭4件はYoY計算の参照用）
-        display_cum = cum_rows[-12:] if len(cum_rows) > 12 else cum_rows
+        # 正規化キーのマップ（FY/Q4マージ用。FY優先）
+        cum_map_norm: dict[tuple[str, str], sqlite3.Row] = {}
+        for r in cum_rows:
+            norm_q = _normalize_quarter(r["fiscal_quarter"])
+            key = (r["fiscal_year"], norm_q)
+            if key not in cum_map_norm or r["fiscal_quarter"] == "FY":
+                cum_map_norm[key] = r
+
+        # 最新の四半期タイプを特定し、同タイプの年度推移を表示
+        _GROUP_TITLES = {
+            "FY": "通期", "Q1": "1Q累計", "Q2": "2Q累計", "Q3": "3Q累計",
+        }
+
+        # 最新レコード（cum_rowsは oldest first なので末尾が最新）
+        latest_q = _normalize_quarter(cum_rows[-1]["fiscal_quarter"]) if cum_rows else None
 
         cumulative_list = []
-        for r in display_cum:
-            fy, fq = r["fiscal_year"], r["fiscal_quarter"]
-            prev_fy = str(int(fy) - 1)
-            prev = cum_map.get((prev_fy, fq))
+        cumulative_title = ""
+        if latest_q:
+            cumulative_title = _GROUP_TITLES.get(latest_q, "累計決算")
+            # 同タイプの行を抽出（oldest first 維持）
+            same_q_rows = [
+                r for r in cum_rows
+                if _normalize_quarter(r["fiscal_quarter"]) == latest_q
+            ]
+            # 重複排除（FY/Q4マージ）
+            seen_years: set[str] = set()
+            unique_rows = []
+            for r in reversed(same_q_rows):  # newest first で FY 優先
+                if r["fiscal_year"] not in seen_years:
+                    seen_years.add(r["fiscal_year"])
+                    unique_rows.append(r)
+            unique_rows.reverse()  # oldest first に戻す
+            display_rows = unique_rows[-3:]
 
-            entry = {
-                "label": _q_label(fy, fq),
-                "revenue": r["revenue"],
-                "revenue_yoy_pct": _yoy_pct(
-                    r["revenue"], prev["revenue"] if prev else None
-                ),
-                "operating_income": r["operating_income"],
-                "operating_income_yoy_pct": _yoy_pct(
-                    r["operating_income"],
-                    prev["operating_income"] if prev else None,
-                ),
-                "ordinary_income": r["ordinary_income"],
-                "ordinary_income_yoy_pct": _yoy_pct(
-                    r["ordinary_income"],
-                    prev["ordinary_income"] if prev else None,
-                ),
-                "net_income": r["net_income"],
-                "net_income_yoy_pct": _yoy_pct(
-                    r["net_income"], prev["net_income"] if prev else None
-                ),
-                "eps": r["eps"],
-                "eps_yoy_pct": _yoy_pct(
-                    r["eps"], prev["eps"] if prev else None
-                ),
-            }
-            cumulative_list.append(entry)
+            for r in display_rows:
+                fy = r["fiscal_year"]
+                fq = r["fiscal_quarter"]
+                prev_fy = str(int(fy) - 1)
+                prev = cum_map_norm.get((prev_fy, latest_q))
+
+                entry = {
+                    "label": _q_label_short(fy, fq),
+                    "revenue": r["revenue"],
+                    "revenue_yoy_pct": _yoy_pct(
+                        r["revenue"], prev["revenue"] if prev else None
+                    ),
+                    "operating_income": r["operating_income"],
+                    "operating_income_yoy_pct": _yoy_pct(
+                        r["operating_income"],
+                        prev["operating_income"] if prev else None,
+                    ),
+                    "ordinary_income": r["ordinary_income"],
+                    "ordinary_income_yoy_pct": _yoy_pct(
+                        r["ordinary_income"],
+                        prev["ordinary_income"] if prev else None,
+                    ),
+                    "net_income": r["net_income"],
+                    "net_income_yoy_pct": _yoy_pct(
+                        r["net_income"], prev["net_income"] if prev else None
+                    ),
+                    "eps": r["eps"],
+                    "eps_yoy_pct": _yoy_pct(
+                        r["eps"], prev["eps"] if prev else None
+                    ),
+                }
+                cumulative_list.append(entry)
 
         result["cumulative"] = cumulative_list
+        result["cumulative_title"] = cumulative_title
 
         # ==================================================
         # 2. 単独四半期データ（v_financials_standalone_quarter）
@@ -519,7 +561,7 @@ def get_financial_history(ticker_code: str) -> dict:
             eps_sa_prev = prev_data.get("eps_standalone")
 
             entry = {
-                "label": _q_label(fy, fq),
+                "label": _q_label_short(fy, fq),
                 "revenue": r["revenue_standalone"],
                 "revenue_yoy_pct": _yoy_pct(
                     r["revenue_standalone"],
