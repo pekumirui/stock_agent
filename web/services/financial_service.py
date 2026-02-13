@@ -96,6 +96,7 @@ def get_viewer_data(
                 "ordinary_income_qoq": None,
                 "net_income_qoq": None,
                 "revenue_yoy": None,
+                "gross_profit_yoy": None,
                 "operating_income_yoy": None,
                 "ordinary_income_yoy": None,
                 "net_income_yoy": None,
@@ -110,7 +111,8 @@ def get_viewer_data(
             if fy and fq:
                 yoy_cursor = conn.execute(
                     """
-                    SELECT revenue_yoy_pct, operating_income_yoy_pct, net_income_yoy_pct,
+                    SELECT revenue_yoy_pct, gross_profit_yoy_pct,
+                           operating_income_yoy_pct, net_income_yoy_pct,
                            ordinary_income, ordinary_income_prev_year
                     FROM v_financials_yoy
                     WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
@@ -120,6 +122,7 @@ def get_viewer_data(
                 yoy_row = yoy_cursor.fetchone()
                 if yoy_row:
                     data["revenue_yoy"] = yoy_row["revenue_yoy_pct"]
+                    data["gross_profit_yoy"] = yoy_row["gross_profit_yoy_pct"]
                     data["operating_income_yoy"] = yoy_row["operating_income_yoy_pct"]
                     data["net_income_yoy"] = yoy_row["net_income_yoy_pct"]
                     # 経常利益YoY（ビューにないので計算）
