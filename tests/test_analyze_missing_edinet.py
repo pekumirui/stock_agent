@@ -302,12 +302,13 @@ class TestSummaryReport:
 class TestIntegration:
     """統合テスト"""
 
-    def test_fetch_missing_edinet_companies(self, test_db, sample_company):
+    def test_fetch_missing_edinet_companies(self, test_db):
         """DB取得の統合テスト"""
-        # sample_company は EDINETコードなしで作成される
+        # EDINETコードなしの銘柄を作成
+        upsert_company('9999', 'テスト株式会社')
         companies = fetch_missing_edinet_companies(include_stats=False)
 
-        # 少なくとも1件は取得できるはず（sample_company）
+        # 少なくとも1件は取得できるはず
         assert len(companies) > 0
 
         # 必須カラムが含まれているか確認
@@ -316,8 +317,10 @@ class TestIntegration:
         assert 'company_name' in company
         assert 'market_segment' in company
 
-    def test_fetch_with_stats(self, test_db, sample_company):
+    def test_fetch_with_stats(self, test_db):
         """株価・決算データ有無を含む取得テスト"""
+        # EDINETコードなしの銘柄を作成
+        upsert_company('9999', 'テスト株式会社')
         companies = fetch_missing_edinet_companies(include_stats=True)
 
         assert len(companies) > 0

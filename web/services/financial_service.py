@@ -1,15 +1,17 @@
 """決算データ取得・計算サービス"""
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Optional
 
-
-DB_PATH = Path(__file__).parent.parent.parent / "db" / "stock_agent.db"
+# scriptsディレクトリをパスに追加（db_utilsのimport用）
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+import db_utils
 
 
 def get_db():
     """SQLite接続を取得"""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(db_utils.DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
