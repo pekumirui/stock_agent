@@ -12,6 +12,7 @@ function viewerApp() {
         },
         sort: 'time',
         order: 'desc',
+        selectedTicker: null,  // Currently selected ticker for detail panel
 
         get rowCount() {
             return document.querySelectorAll('#table-body tr.data-row').length;
@@ -41,65 +42,29 @@ function viewerApp() {
             });
         },
 
-        expandAll() {
-            document.querySelectorAll('.detail-row').forEach(row => {
-                row.style.display = 'table-row';
-                row.classList.add('visible');
-            });
-            document.querySelectorAll('.toggle-btn').forEach(btn => {
-                btn.innerHTML = '&#9660;';
-                btn.classList.add('expanded');
-                // 未ロードの展開行はhtmxでロード
-                const detailRow = btn.closest('tr').nextElementSibling;
-                if (detailRow && detailRow.classList.contains('detail-row')) {
-                    const td = detailRow.querySelector('td');
-                    if (td && td.innerHTML.trim() === '') {
-                        htmx.trigger(btn, 'click');
-                    }
-                }
-            });
-        },
+        selectRow(ticker) {
+            if (this.selectedTicker === ticker) {
+                // Same row clicked - deselect
+                this.selectedTicker = null;
+                document.getElementById('financial-detail-target').innerHTML =
+                    '<p class="detail-empty" style="padding: 40px 16px; text-align: center;">テーブルの銘柄をクリックして業績詳細を表示</p>';
+                return;
+            }
 
-        collapseAll() {
-            document.querySelectorAll('.detail-row').forEach(row => {
-                row.style.display = 'none';
-                row.classList.remove('visible');
-            });
-            document.querySelectorAll('.toggle-btn').forEach(btn => {
-                btn.innerHTML = '&#9654;';
-                btn.classList.remove('expanded');
+            this.selectedTicker = ticker;
+
+            // Load financial detail via htmx
+            htmx.ajax('GET', '/viewer/financial-detail/' + ticker, {
+                target: '#financial-detail-target',
+                swap: 'innerHTML',
             });
         },
     };
 }
 
-/**
- * 展開行のトグル
- */
-function toggleDetail(btn) {
-    const dataRow = btn.closest('tr');
-    const detailRow = dataRow.nextElementSibling;
-    if (!detailRow || !detailRow.classList.contains('detail-row')) return;
-
-    const isVisible = detailRow.style.display === 'table-row';
-
-    if (isVisible) {
-        detailRow.style.display = 'none';
-        detailRow.classList.remove('visible');
-        btn.innerHTML = '&#9654;';
-        btn.classList.remove('expanded');
-    } else {
-        detailRow.style.display = 'table-row';
-        detailRow.classList.add('visible');
-        btn.innerHTML = '&#9660;';
-        btn.classList.add('expanded');
-    }
-}
-
-/* htmx afterSwap イベントで件数を更新 */
+/* htmx afterSwap - update row count and re-apply selected state */
 document.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'table-body') {
-        /* Alpine.jsのrowCountを自動更新させるためにイベントを発行 */
         window.dispatchEvent(new Event('resize'));
     }
 });

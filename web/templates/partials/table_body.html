@@ -1,14 +1,9 @@
 {% for row in rows %}
 <tr class="data-row"
     data-ticker="{{ row.ticker_code }}"
-    data-type="{{ row.announcement_type }}">
-    <td class="col-toggle">
-        <button class="toggle-btn"
-                hx-get="/viewer/detail/{{ row.ticker_code }}/{{ target_date }}"
-                hx-target="next tr.detail-row"
-                hx-swap="innerHTML"
-                onclick="toggleDetail(this)">&#9654;</button>
-    </td>
+    data-type="{{ row.announcement_type }}"
+    @click="selectRow('{{ row.ticker_code }}')"
+    :class="{'selected': selectedTicker === '{{ row.ticker_code }}'}">
     <td class="col-time">{{ row.announcement_time }}</td>
     <td class="col-ticker">{{ row.ticker_code }}</td>
     <td class="col-name" title="{{ row.company_name }}">{{ row.company_name }}</td>
@@ -77,13 +72,10 @@
     <!-- 情報 -->
     <td class="col-info">{{ row.dividend_info or '' }}</td>
 </tr>
-<tr class="detail-row" style="display:none;">
-    <td colspan="20"></td>
-</tr>
 {% endfor %}
 
 {% if not rows %}
 <tr>
-    <td colspan="20" class="no-data">この日付の決算発表データはありません</td>
+    <td colspan="19" class="no-data">この日付の決算発表データはありません</td>
 </tr>
 {% endif %}

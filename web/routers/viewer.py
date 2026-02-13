@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from web.services.financial_service import get_viewer_data, get_detail_data, get_available_dates
+from web.services.financial_service import get_viewer_data, get_detail_data, get_available_dates, get_financial_history
 
 router = APIRouter()
 
@@ -68,4 +68,14 @@ async def viewer_detail(request: Request, ticker: str, date: str):
             "ticker": ticker,
             "target_date": date,
         },
+    )
+
+
+@router.get("/viewer/financial-detail/{ticker}", response_class=HTMLResponse)
+async def financial_detail(request: Request, ticker: str):
+    """業績詳細パネル（htmxパーシャル）"""
+    data = get_financial_history(ticker)
+    return templates.TemplateResponse(
+        "partials/financial_detail.html",
+        {"request": request, "data": data},
     )

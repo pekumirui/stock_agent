@@ -40,13 +40,16 @@ stock_agent/
 ├── web/                             # Webビューア
 │   ├── app.py                       # FastAPIメインアプリ
 │   ├── routers/
-│   │   └── viewer.py                # ビューアルーター（3エンドポイント）
+│   │   └── viewer.py                # ビューアルーター（4エンドポイント）
 │   ├── services/
-│   │   └── financial_service.py    # ビジネスロジック
+│   │   └── financial_service.py    # ビジネスロジック（get_financial_history含む）
 │   ├── templates/                   # Jinja2テンプレート
 │   │   ├── base.html
-│   │   ├── viewer.html
+│   │   ├── viewer.html              # 3エリアGrid（メイン+AIコメント+業績詳細）
 │   │   └── partials/                # htmx部分更新用
+│   │       ├── table_body.html      # メインテーブル本体
+│   │       ├── detail_row.html      # （旧）展開行パーシャル
+│   │       └── financial_detail.html # 業績詳細パネル
 │   └── static/
 │       ├── css/viewer.css           # ダークテーマCSS
 │       └── js/viewer.js             # Alpine.jsアプリ
