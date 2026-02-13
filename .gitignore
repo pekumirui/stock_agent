@@ -25,6 +25,11 @@ logs/*.log
 *.swp
 *.swo
 
+# Node (Playwright MCP)
+node_modules/
+package.json
+package-lock.json
+
 # OS
 .DS_Store
 Thumbs.db
