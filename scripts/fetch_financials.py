@@ -600,6 +600,25 @@ def ticker_to_edinet_code(ticker_code: str) -> Optional[str]:
         return row['edinet_code'] if row else None
 
 
+WAREKI_MAP = {
+    '令和': 2018,  # 令和N年 = 2018 + N
+    '平成': 1988,  # 平成N年 = 1988 + N
+}
+
+
+def _wareki_to_seireki(text: str) -> str:
+    """和暦表記を西暦に変換する。
+
+    例: "令和7年12月期" → "2025年12月期"
+    """
+    for era, offset in WAREKI_MAP.items():
+        match = re.search(rf'{era}(\d{{1,2}})年', text)
+        if match:
+            year = offset + int(match.group(1))
+            return text[:match.start()] + f'{year}年' + text[match.end():]
+    return text
+
+
 def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
     """
     EDINET書類情報からfiscal_yearとfiscal_quarterを判定
@@ -616,6 +635,7 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
 
     # 全角数字→半角数字に正規化（防御的: EDINETは通常半角だが念のため）
     normalized_desc = unicodedata.normalize('NFKC', doc_description)
+    normalized_desc = _wareki_to_seireki(normalized_desc)
 
     # fiscal_quarter の判定
     if doc_type == '120':

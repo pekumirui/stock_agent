@@ -12,6 +12,7 @@ sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
 from fetch_tdnet import detect_fiscal_period
+from fetch_financials import _wareki_to_seireki
 from db_utils import get_connection, insert_financial
 
 
@@ -117,6 +118,42 @@ class TestFiscalPeriodDetection:
         assert fiscal_year == "2025"
         assert quarter == "FY"
 
+    def test_wareki_reiwa_fy(self):
+        """令和表記の通期決算短信"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "令和７年12月期決算短信〔日本基準〕（連結）",
+            "2026-02-13"
+        )
+        assert fiscal_year == "2025"
+        assert quarter == "FY"
+
+    def test_wareki_reiwa_q3(self):
+        """令和表記の第3四半期"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "令和６年12月期第３四半期決算短信",
+            "2024-10-15"
+        )
+        assert fiscal_year == "2024"
+        assert quarter == "Q3"
+
+    def test_wareki_heisei(self):
+        """平成表記の通期"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "平成31年3月期通期決算短信",
+            "2019-05-10"
+        )
+        assert fiscal_year == "2019"
+        assert quarter == "FY"
+
+    def test_wareki_reiwa_fullwidth(self):
+        """令和＋全角数字"""
+        fiscal_year, quarter = detect_fiscal_period(
+            "令和７年３月期第１四半期決算短信〔日本基準〕（連結）",
+            "2025-07-30"
+        )
+        assert fiscal_year == "2025"
+        assert quarter == "Q1"
+
     def test_fallback_quarter_from_month(self):
         """四半期のフォールバック（発表月から推定）"""
         # 6月 → Q1
@@ -146,6 +183,25 @@ class TestFiscalPeriodDetection:
             "2024-03-31"
         )
         assert quarter == "FY"
+
+
+class TestWarekiToSeireki:
+    """和暦→西暦変換のテスト"""
+
+    def test_reiwa(self):
+        assert _wareki_to_seireki("令和7年12月期") == "2025年12月期"
+
+    def test_reiwa_double_digit(self):
+        assert _wareki_to_seireki("令和10年3月期") == "2028年3月期"
+
+    def test_heisei(self):
+        assert _wareki_to_seireki("平成31年3月期") == "2019年3月期"
+
+    def test_no_wareki(self):
+        assert _wareki_to_seireki("2025年3月期") == "2025年3月期"
+
+    def test_no_year(self):
+        assert _wareki_to_seireki("決算短信") == "決算短信"
 
 
 class TestDataSourcePriority:
