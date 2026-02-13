@@ -208,15 +208,10 @@ class TestDataSourcePriority:
     """データソース優先度のテスト"""
 
     @pytest.fixture(autouse=True)
-    def setup_and_teardown(self):
-        """各テスト前後でDBをクリーンアップ"""
+    def setup_and_teardown(self, test_db):
+        """各テスト前後でDBをセットアップ（一時DB上で動作）"""
         # セットアップ: テスト用会社データを作成
         with get_connection() as conn:
-            # 既存のテストデータを削除
-            conn.execute("DELETE FROM financials WHERE ticker_code = 'TEST'")
-            conn.execute("DELETE FROM companies WHERE ticker_code = 'TEST'")
-
-            # テスト用会社を作成
             conn.execute("""
                 INSERT INTO companies (ticker_code, company_name, market_segment, sector_33)
                 VALUES ('TEST', 'テスト株式会社', 'TEST', 'TEST')
@@ -224,12 +219,7 @@ class TestDataSourcePriority:
             conn.commit()
 
         yield
-
-        # クリーンアップ
-        with get_connection() as conn:
-            conn.execute("DELETE FROM financials WHERE ticker_code = 'TEST'")
-            conn.execute("DELETE FROM companies WHERE ticker_code = 'TEST'")
-            conn.commit()
+        # 一時DBのため手動クリーンアップ不要
 
     def test_tdnet_new_data(self):
         """新規データは保存される"""

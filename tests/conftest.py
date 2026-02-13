@@ -28,42 +28,23 @@ from db_utils import (
 
 
 @pytest.fixture(scope="function")
-def test_db():
+def test_db(tmp_path, monkeypatch):
     """
-    テストDB初期化 + 自動クリーンアップ
+    テスト専用の一時DBを使用するfixture
 
-    各テスト関数ごとにDBを初期化し、テスト終了後に
-    テストデータ（source='TEST', 銘柄9xxx番台）を自動削除します。
+    各テスト関数ごとに一時DBを作成し、本番DBに一切触れません。
+    テスト終了後は tmp_path のクリーンアップで自動削除されます。
 
     使用例:
         def test_something(test_db):
-            # テストコード
+            # テストコード（一時DB上で動作）
             pass
     """
-    # セットアップ: DB初期化
+    import db_utils
+    test_db_path = tmp_path / "test_stock_agent.db"
+    monkeypatch.setattr(db_utils, "DB_PATH", test_db_path)
     init_database()
-
-    # テスト実行
     yield
-
-    # クリーンアップ: テストデータのみ削除
-    with get_connection() as conn:
-        # 外部キー制約を一時的に無効化
-        conn.execute("PRAGMA foreign_keys = OFF")
-
-        # テストデータを削除
-        conn.execute("DELETE FROM batch_logs WHERE batch_name LIKE '%test%' OR batch_name = 'fetch_prices'")
-        conn.execute("DELETE FROM announcements WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
-        conn.execute("DELETE FROM management_forecasts WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
-        conn.execute("DELETE FROM financials WHERE source = 'TEST' OR ticker_code LIKE '9%' OR ticker_code = '7203'")
-        conn.execute("DELETE FROM daily_prices WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
-        conn.execute("DELETE FROM stock_splits WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
-        conn.execute("DELETE FROM companies WHERE ticker_code LIKE '9%' OR ticker_code = '7203'")
-
-        conn.commit()
-
-        # 外部キー制約を再有効化
-        conn.execute("PRAGMA foreign_keys = ON")
 
 
 @pytest.fixture

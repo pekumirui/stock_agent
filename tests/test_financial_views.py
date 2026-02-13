@@ -14,10 +14,8 @@ from db_utils import get_connection, init_database, insert_financial, upsert_com
 
 
 @pytest.fixture(autouse=True)
-def setup_test_data():
-    """テスト用データのセットアップ"""
-    init_database()
-
+def setup_test_data(test_db):
+    """テスト用データのセットアップ（一時DB上で動作）"""
     # テスト用銘柄を登録
     upsert_company('9999', 'テスト株式会社')
 
@@ -53,12 +51,7 @@ def setup_test_data():
         )
 
     yield
-
-    # テストデータのクリーンアップ
-    with get_connection() as conn:
-        conn.execute("DELETE FROM financials WHERE ticker_code = '9999'")
-        conn.execute("DELETE FROM companies WHERE ticker_code = '9999'")
-        conn.commit()
+    # 一時DBのため手動クリーンアップ不要
 
 
 class TestYoYView:
