@@ -1,0 +1,13 @@
+# stock_agent バッチジョブ
+# ===========================
+# このファイルはCI/CDで自動適用される（crontab ~/stock_agent/infra/crontab）
+# 変更はGitにcommit → mainへpushで本番に反映
+
+# 株価取得（平日18:00 JST）
+0 18 * * 1-5 cd ~/stock_agent && ~/venv/stock_agent/bin/python scripts/run_price_batch.py >> ~/stock_agent/logs/price_batch_$(date +\%Y\%m\%d).log 2>&1
+
+# 開示データ取得（平日15:00〜19:00 毎時 JST）
+0 15-19 * * 1-5 cd ~/stock_agent && ~/venv/stock_agent/bin/python scripts/run_disclosure_batch.py >> ~/stock_agent/logs/disclosure_batch_$(date +\%Y\%m\%d).log 2>&1
+
+# ログ世代削除（毎日3:00 JST、30日超を削除）
+0 3 * * * ~/stock_agent/infra/cleanup_logs.sh 30
