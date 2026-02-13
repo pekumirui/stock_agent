@@ -31,6 +31,9 @@ from db_utils import (
     ticker_exists,
 )
 
+# Lightプラン: 60件/分 → 安全マージンとして1.5秒間隔
+API_SLEEP_SEC = 1.5
+
 # DocType → fiscal_quarter マッピング
 QUARTER_PREFIX = {
     'FY': 'FY',
@@ -259,7 +262,9 @@ def fetch_by_ticker(client, tickers: list[str]) -> int:
     """銘柄コード指定で全履歴を取得する。"""
     saved_count = 0
 
-    for ticker in tickers:
+    for i, ticker in enumerate(tickers):
+        if i > 0:
+            time.sleep(API_SLEEP_SEC)
         print(f"\n--- {ticker} ---")
         try:
             df = client.get_fin_summary(code=ticker)
@@ -293,6 +298,8 @@ def fetch_by_date(client, days: int) -> int:
     today = datetime.now()
 
     for i in range(days):
+        if i > 0:
+            time.sleep(API_SLEEP_SEC)
         target_date = today - timedelta(days=i)
         date_str = target_date.strftime('%Y%m%d')
         print(f"\n--- {target_date.strftime('%Y-%m-%d')} ---")
