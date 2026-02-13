@@ -30,7 +30,16 @@
       "Bash(../venv/bin/python:*)",
       "WebFetch(domain:investment.abbamboo.com)",
       "Bash(gh auth status:*)",
-      "Bash(venv/bin/pip install:*)"
+      "Bash(venv/bin/pip install:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_install",
+      "Bash(/home/pekumirui/stock_agent/venv/bin/python -m pytest:*)",
+      "Bash(/home/pekumirui/stock_agent/venv/bin/python -m uvicorn:*)",
+      "Bash(ln:*)",
+      "Bash(npm install:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(unset:*)"
     ]
   }
 }
