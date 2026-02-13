@@ -36,6 +36,8 @@ jobs:
             --exclude '*.pem' \
             --exclude 'db/stock_agent.db' \
             --exclude 'logs/*' \
+            --exclude '.env' \
+            --exclude 'venv' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             ./ ${{ env.VM_USER }}@${{ env.VM_HOST }}:${{ env.DEPLOY_PATH }}/
 
