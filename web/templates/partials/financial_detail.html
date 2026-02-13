@@ -78,7 +78,7 @@
         <p class="detail-empty">業績データがありません</p>
     {% else %}
         {% if data.cumulative %}
-            {{ render_table("累計決算", data.cumulative, data.forecast) }}
+            {{ render_table(data.cumulative_title or "累計決算", data.cumulative, data.forecast) }}
         {% endif %}
 
         {% if data.quarterly %}
