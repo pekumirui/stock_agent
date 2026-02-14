@@ -21,6 +21,7 @@ from fetch_financials import (
     _is_supported_namespace,
     _is_current_period_context,
     _detect_edinet_quarter,
+    _extract_fiscal_end_date_from_xbrl,
     extract_edinet_zip,
 )
 from xbrlp import QName
@@ -473,3 +474,159 @@ class TestDetectEdinetQuarter:
         year, quarter = _detect_edinet_quarter(doc)
         assert year == '2023'
         assert quarter == 'Q1'  # フォールバック
+
+    def test_june_fiscal_year_q2_with_period_start(self):
+        """6月決算企業のQ2: periodStart=7月→fiscal_year=翌年"""
+        doc = {
+            'docTypeCode': '160',
+            'periodStart': '2025-07-01',
+            'periodEnd': '2025-12-31',
+            'docDescription': '半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2026'
+        assert quarter == 'Q2'
+
+    def test_march_fiscal_year_q1_with_period_start(self):
+        """3月決算企業のQ1: periodStart=4月→fiscal_year=翌年"""
+        doc = {
+            'docTypeCode': '140',
+            'periodStart': '2025-04-01',
+            'periodEnd': '2025-06-30',
+            'docDescription': '第1四半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2026'
+        assert quarter == 'Q1'
+
+    def test_december_fiscal_year_q1_with_period_start(self):
+        """12月決算企業のQ1: periodStart=1月→fiscal_year=同年"""
+        doc = {
+            'docTypeCode': '140',
+            'periodStart': '2025-01-01',
+            'periodEnd': '2025-03-31',
+            'docDescription': '第1四半期報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2025'
+        assert quarter == 'Q1'
+
+    def test_march_fiscal_year_fy_with_period_start(self):
+        """3月決算FY: periodStart=4月→fiscal_year=翌年"""
+        doc = {
+            'docTypeCode': '120',
+            'periodStart': '2024-04-01',
+            'periodEnd': '2025-03-31',
+            'docDescription': '有価証券報告書',
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2025'
+        assert quarter == 'FY'
+
+
+class TestExtractFiscalEndDateFromXbrl:
+    """iXBRL Context要素からのfiscal_end_date抽出テスト"""
+
+    def _write_ixbrl(self, tmp_path, content):
+        """テスト用iXBRLファイルを作成してPathを返す"""
+        p = tmp_path / "test.htm"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_current_year_instant(self, tmp_path):
+        """CurrentYearInstantのinstantから決算期末日を取得"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYearInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E00012</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2026-03-31</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2026-03-31"
+
+    def test_current_year_duration_fallback(self, tmp_path):
+        """CurrentYearDurationのendDateにフォールバック"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYearDuration">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E00012</xbrli:identifier></xbrli:entity>
+  <xbrli:period>
+    <xbrli:startDate>2025-04-01</xbrli:startDate>
+    <xbrli:endDate>2026-03-31</xbrli:endDate>
+  </xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2026-03-31"
+
+    def test_skip_scenario_context(self, tmp_path):
+        """scenario付きContextはスキップし、scenario無しを返す"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYearInstant_segment1">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E00012</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2026-03-31</xbrli:instant></xbrli:period>
+  <xbrli:scenario><xbrli:identifier>segment</xbrli:identifier></xbrli:scenario>
+</xbrli:context>
+<xbrli:context id="CurrentYearInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E00012</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2026-03-31</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2026-03-31"
+
+    def test_no_context_returns_none(self, tmp_path):
+        """Context要素がない場合はNoneを返す"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header><ix:resources></ix:resources></ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) is None
+
+    def test_december_fiscal_year(self, tmp_path):
+        """12月決算企業のQ3: instant=2025-12-31"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYearInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E00012</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        result = _extract_fiscal_end_date_from_xbrl([p])
+        assert result == "2025-12-31"
+        assert result[:4] == "2025"  # fiscal_year導出の確認

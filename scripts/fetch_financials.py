@@ -435,6 +435,62 @@ def _is_current_period_context(context_ref: str) -> bool:
     return False
 
 
+def _extract_fiscal_end_date_from_xbrl(ixbrl_paths: list) -> Optional[str]:
+    """iXBRLのContext要素から決算期末日を抽出する。
+
+    CurrentYearInstant(期末時点)のinstantを優先的に取得。
+    見つからない場合はCurrentYearDurationのendDateにフォールバック。
+
+    Returns:
+        決算期末日 (例: "2026-03-31") or None
+    """
+    for ixbrl_path in ixbrl_paths:
+        xbrli_ns = None
+
+        for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
+            if event == "start-ns":
+                prefix, uri = elem
+                if uri == "http://www.xbrl.org/2003/instance":
+                    xbrli_ns = uri
+            elif event == "end" and xbrli_ns:
+                context_tag = f"{{{xbrli_ns}}}context"
+                if elem.tag == context_tag:
+                    ctx_id = elem.get("id", "")
+                    # CurrentYearInstant → 期末時点（最も正確）
+                    if "CurrentYear" in ctx_id and "Instant" in ctx_id:
+                        period = elem.find(f"{{{xbrli_ns}}}period")
+                        if period is not None:
+                            # scenario付き（ディメンション指定）は除外
+                            scenario = elem.find(f"{{{xbrli_ns}}}scenario")
+                            if scenario is not None:
+                                continue
+                            instant = period.find(f"{{{xbrli_ns}}}instant")
+                            if instant is not None and instant.text:
+                                return instant.text
+
+        # Instant未発見時のフォールバック: CurrentYearDurationのendDate
+        for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
+            if event == "start-ns":
+                prefix, uri = elem
+                if uri == "http://www.xbrl.org/2003/instance":
+                    xbrli_ns = uri
+            elif event == "end" and xbrli_ns:
+                context_tag = f"{{{xbrli_ns}}}context"
+                if elem.tag == context_tag:
+                    ctx_id = elem.get("id", "")
+                    if "CurrentYear" in ctx_id and "Duration" in ctx_id:
+                        scenario = elem.find(f"{{{xbrli_ns}}}scenario")
+                        if scenario is not None:
+                            continue
+                        period = elem.find(f"{{{xbrli_ns}}}period")
+                        if period is not None:
+                            end_date = period.find(f"{{{xbrli_ns}}}endDate")
+                            if end_date is not None and end_date.text:
+                                return end_date.text
+
+    return None
+
+
 def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
     """
     XBRLPを使ってiXBRLから財務データを抽出
@@ -529,6 +585,12 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
         print(f"    [DEBUG] 未マッチXBRL要素 ({len(unmatched_elements)}件、P/L関連{len(pl_elements)}件): "
               f"{', '.join(display)}"
               + (f" ... 他{other_count}件" if other_count > 0 else ""))
+
+    # iXBRLのContext要素から決算期末日を取得
+    if parser.ixbrl_files:
+        fiscal_end = _extract_fiscal_end_date_from_xbrl(parser.ixbrl_files)
+        if fiscal_end:
+            financials['fiscal_end_date'] = fiscal_end
 
     return financials
 
@@ -658,12 +720,19 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
     year_match = re.search(r'(\d{4})年.*?期', normalized_desc)
     if year_match:
         fiscal_year = year_match.group(1)
-    elif period_end:
-        # フォールバック: periodEndの年（FYには正確だがQ1/Q3には不正確な場合あり）
-        fiscal_year = period_end[:4]
     else:
-        submit_date = doc_info.get('submitDateTime', '')[:10]
-        fiscal_year = submit_date[:4]
+        # フォールバック: periodStartから決算年度を算出
+        # periodStart月==1 → 12月決算（同年）、それ以外 → 翌年に決算期末
+        period_start = doc_info.get('periodStart', '')
+        if period_start and len(period_start) >= 7:
+            start_year = int(period_start[:4])
+            start_month = int(period_start[5:7])
+            fiscal_year = str(start_year) if start_month == 1 else str(start_year + 1)
+        elif period_end:
+            fiscal_year = period_end[:4]
+        else:
+            submit_date = doc_info.get('submitDateTime', '')[:10]
+            fiscal_year = submit_date[:4]
 
     return fiscal_year, fiscal_quarter
 

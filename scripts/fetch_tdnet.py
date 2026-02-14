@@ -451,12 +451,20 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
             print(f"    [WARN] 財務データを抽出できませんでした")
             return False
 
+        # iXBRL由来のfiscal_end_dateでfiscal_yearを補正
+        xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
+        if xbrl_fiscal_end:
+            xbrl_fiscal_year = xbrl_fiscal_end[:4]
+            if xbrl_fiscal_year != fiscal_year:
+                print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
+                fiscal_year = xbrl_fiscal_year
+
         # DBに保存（上書きチェックは insert_financial 内で実施）
         saved = insert_financial(
             ticker_code=ticker_code,
             fiscal_year=fiscal_year,
             fiscal_quarter=fiscal_quarter,
-            fiscal_end_date=None,  # TDnetには期末日情報がない
+            fiscal_end_date=xbrl_fiscal_end,
             announcement_date=announcement_date,
             announcement_time=announcement_time,
             revenue=financials.get('revenue'),

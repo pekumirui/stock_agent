@@ -39,7 +39,28 @@
       "Bash(npm install:*)",
       "Bash(npx playwright install:*)",
       "Bash(claude mcp add:*)",
-      "Bash(unset:*)"
+      "Bash(unset:*)",
+      "Bash(git worktree:*)",
+      "Bash(git remote prune:*)",
+      "Bash(test:*)",
+      "mcp__j-quants-doc-mcp__health_check",
+      "mcp__j-quants-doc-mcp__search_endpoints",
+      "mcp__j-quants-doc-mcp__answer_question",
+      "mcp__j-quants-doc-mcp__describe_endpoint",
+      "mcp__j-quants-doc-mcp__generate_sample_code",
+      "Bash(set:*)",
+      "Bash(source:*)",
+      "mcp__j-quants-doc-mcp__lookup_property",
+      "mcp__j-quants-doc-mcp__get_pattern",
+      "Bash(# TDnetのログとキャッシュを確認 ls -la /home/pekumirui/stock_agent/data/tdnet_cache/)",
+      "Bash(tail -20 echo \"===\" grep -i \"4331\\\\|4891\\\\|6630\" /home/pekumirui/stock_agent/logs/fetch_tdnet.log)",
+      "Bash(/home/pekumirui/stock_agent/venv/bin/python:*)",
+      "Bash(/home/pekumirui/stock_agent/venv/bin/pip list:*)",
+      "Bash(venv/bin/python3:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "j-quants-doc-mcp"
+  ],
+  "enableAllProjectMcpServers": true
 }
