@@ -47,6 +47,9 @@ from db_utils import (
 # EDINET API エンドポイント
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
+# ZIPキャッシュディレクトリ
+EDINET_CACHE_DIR = BASE_DIR / "data" / "edinet_cache"
+
 # 書類種別コード（EDINET API v2準拠）
 DOC_TYPE_CODES = {
     '120': '有価証券報告書',
@@ -284,14 +287,23 @@ class EdinetClient:
             print(f"  [ERROR] 書類一覧取得失敗 ({date}): {e}")
             return []
 
-    def download_document(self, doc_id: str, output_dir: Path = None) -> Optional[Path]:
+    def download_document(self, doc_id: str, output_dir: Path = None,
+                          cache_dir: Path = None) -> Optional[bytes]:
         """
         書類をダウンロード（ZIP形式）
 
         Args:
             doc_id: 書類管理番号
-            output_dir: 出力ディレクトリ
+            output_dir: 出力ディレクトリ（ファイル保存時）
+            cache_dir: ZIPキャッシュディレクトリ（指定時はキャッシュを使用）
         """
+        # キャッシュチェック
+        if cache_dir:
+            cache_path = cache_dir / f"{doc_id}.zip"
+            if cache_path.exists():
+                print(f"    [CACHE] キャッシュ使用: {doc_id}")
+                return cache_path.read_bytes()
+
         url = f"{EDINET_API_BASE}/documents/{doc_id}"
         params = {
             'type': 1,  # 1=XBRL含むZIP
@@ -302,6 +314,14 @@ class EdinetClient:
         try:
             response = self.session.get(url, params=params, timeout=60)
             response.raise_for_status()
+
+            # キャッシュ保存
+            if cache_dir:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                (cache_dir / f"{doc_id}.zip").write_bytes(response.content)
+
+            # API制限対策: 実際にAPIを叩いた場合のみsleep
+            time.sleep(1.0)
 
             if output_dir:
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -738,7 +758,8 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
 
 
 def process_document(client: EdinetClient, doc_info: dict,
-                     edinet_map: dict = None, processed_ids: set = None) -> bool:
+                     edinet_map: dict = None, processed_ids: set = None,
+                     cache_dir: Path = None) -> bool:
     """
     1つの書類を処理
 
@@ -747,6 +768,7 @@ def process_document(client: EdinetClient, doc_info: dict,
         doc_info: 書類情報（APIレスポンスの1要素）
         edinet_map: EDINETコード→証券コードのマッピング（キャッシュ）
         processed_ids: 処理済み書類IDの集合
+        cache_dir: ZIPキャッシュディレクトリ
     """
     doc_id = doc_info.get('docID')
     edinet_code = doc_info.get('edinetCode')
@@ -772,8 +794,8 @@ def process_document(client: EdinetClient, doc_info: dict,
 
     print(f"  処理中: {ticker_code} - {filer_name} ({DOC_TYPE_CODES.get(doc_type, doc_type)})")
 
-    # 書類をダウンロード
-    zip_content = client.download_document(doc_id)
+    # 書類をダウンロード（キャッシュがあればスキップ）
+    zip_content = client.download_document(doc_id, cache_dir=cache_dir)
     if not zip_content:
         return False
 
@@ -824,7 +846,7 @@ def process_document(client: EdinetClient, doc_info: dict,
             fiscal_year=fiscal_year,
             fiscal_quarter=fiscal_quarter,
             fiscal_end_date=period_end,
-            announcement_date=submit_date,
+            announcement_date=None,  # 有報提出日は決算発表日ではない
             revenue=financials.get('revenue'),
             gross_profit=financials.get('gross_profit'),
             operating_income=financials.get('operating_income'),
@@ -857,7 +879,7 @@ def process_document(client: EdinetClient, doc_info: dict,
 
 
 def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
-                     force: bool = False):
+                     force: bool = False, cache_dir: Path = None):
     """
     決算データを取得
 
@@ -866,6 +888,7 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
         tickers: 対象銘柄リスト（Noneなら全銘柄）
         api_key: EDINET APIキー
         force: Trueなら処理済み書類も再取得
+        cache_dir: ZIPキャッシュディレクトリ（Noneならキャッシュ無効）
     """
     log_id = log_batch_start("fetch_financials")
     processed = 0
@@ -904,11 +927,10 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
                     if ticker not in tickers:
                         continue
 
-                result = process_document(client, doc, edinet_map, processed_ids)
+                result = process_document(client, doc, edinet_map, processed_ids,
+                                         cache_dir=cache_dir)
                 if result:
                     processed += 1
-                    # API制限対策（ダウンロード実行時のみ）
-                    time.sleep(1.0)
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
@@ -946,10 +968,24 @@ def main():
     parser.add_argument('--api-key', help='EDINET APIキー（未指定時は環境変数 EDINET_API_KEY）')
     parser.add_argument('--doc-id', help='特定の書類IDを処理')
     parser.add_argument('--force', action='store_true', help='処理済み書類も再取得')
+    parser.add_argument('--no-cache', action='store_true', help='ZIPキャッシュを使用しない')
+    parser.add_argument('--clear-cache', action='store_true', help='ZIPキャッシュを削除して終了')
     args = parser.parse_args()
+
+    # キャッシュクリア
+    if args.clear_cache:
+        if EDINET_CACHE_DIR.exists():
+            shutil.rmtree(EDINET_CACHE_DIR)
+            print(f"キャッシュを削除しました: {EDINET_CACHE_DIR}")
+        else:
+            print("キャッシュディレクトリが存在しません")
+        return
 
     # APIキー: 引数 > 環境変数
     api_key = args.api_key or os.environ.get('EDINET_API_KEY')
+
+    # キャッシュディレクトリ
+    cache_dir = None if args.no_cache else EDINET_CACHE_DIR
 
     # 対象銘柄
     tickers = None
@@ -959,10 +995,10 @@ def main():
     if args.doc_id:
         client = EdinetClient(api_key=api_key)
         doc_info = {'docID': args.doc_id}
-        process_document(client, doc_info)
+        process_document(client, doc_info, cache_dir=cache_dir)
     else:
         fetch_financials(days=args.days, tickers=tickers, api_key=api_key,
-                        force=args.force)
+                        force=args.force, cache_dir=cache_dir)
 
 
 if __name__ == "__main__":
