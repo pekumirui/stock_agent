@@ -56,11 +56,14 @@
       "Bash(tail -20 echo \"===\" grep -i \"4331\\\\|4891\\\\|6630\" /home/pekumirui/stock_agent/logs/fetch_tdnet.log)",
       "Bash(/home/pekumirui/stock_agent/venv/bin/python:*)",
       "Bash(/home/pekumirui/stock_agent/venv/bin/pip list:*)",
-      "Bash(venv/bin/python3:*)"
+      "Bash(venv/bin/python3:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git log:*)",
+      "Bash(gh pr list:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "j-quants-doc-mcp"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
