@@ -284,7 +284,7 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter) DO UPDATE SET
                 fiscal_end_date = excluded.fiscal_end_date,
-                announcement_date = excluded.announcement_date,
+                announcement_date = COALESCE(excluded.announcement_date, announcement_date),
                 announcement_time = COALESCE(excluded.announcement_time, announcement_time),
                 revenue = COALESCE(excluded.revenue, revenue),
                 gross_profit = COALESCE(excluded.gross_profit, gross_profit),

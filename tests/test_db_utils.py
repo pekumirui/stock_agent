@@ -404,3 +404,77 @@ class TestSourcePriority:
             ).fetchone()
             assert row['revenue'] == 1000.0
             assert row['source'] == 'EDINET'
+
+
+class TestAnnouncementDateProtection:
+    """announcement_date保護のテスト（EDINET上書き防止）"""
+
+    def test_edinet_does_not_overwrite_tdnet_announcement_date(self, sample_company):
+        """EDINET上書き時にTDnetのannouncement_dateが保持されること"""
+        insert_financial(
+            '9999', '2024', 'Q1',
+            revenue=1000.0,
+            announcement_date='2024-02-10',
+            source='TDnet',
+        )
+        insert_financial(
+            '9999', '2024', 'Q1',
+            revenue=1000.0,
+            gross_profit=400.0,
+            announcement_date=None,
+            source='EDINET',
+        )
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date, gross_profit, source FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['announcement_date'] == '2024-02-10', \
+                "TDnetのannouncement_dateが保持されるべき"
+            assert row['gross_profit'] == 400.0, \
+                "EDINETのgross_profitは追加されるべき"
+            assert row['source'] == 'EDINET', \
+                "sourceはEDINETに更新されるべき"
+
+    def test_edinet_first_has_null_announcement_date(self, sample_company):
+        """EDINET先行挿入時はannouncement_dateがNULLになること"""
+        insert_financial(
+            '9999', '2024', 'Q2',
+            revenue=500.0,
+            announcement_date=None,
+            source='EDINET',
+        )
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q2'"
+            ).fetchone()
+            assert row['announcement_date'] is None, \
+                "EDINET先行挿入時はannouncement_dateがNULLであるべき"
+
+    def test_tdnet_skipped_after_edinet_keeps_null(self, sample_company):
+        """EDINET先行後にTDnetがスキップされた場合、announcement_dateはNULLのまま"""
+        insert_financial(
+            '9999', '2024', 'Q3',
+            revenue=800.0,
+            announcement_date=None,
+            source='EDINET',
+        )
+        result = insert_financial(
+            '9999', '2024', 'Q3',
+            revenue=800.0,
+            announcement_date='2024-01-30',
+            source='TDnet',
+        )
+        assert result is False, "TDnetはEDINETより低優先度のためスキップされるべき"
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date, source FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q3'"
+            ).fetchone()
+            assert row['announcement_date'] is None, \
+                "TDnetがスキップされたためannouncement_dateはNULLのまま"
+            assert row['source'] == 'EDINET'
