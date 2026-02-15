@@ -146,9 +146,10 @@ def get_viewer_data(
                         """
                         SELECT revenue_standalone, gross_profit_standalone,
                                operating_income_standalone, ordinary_income_standalone,
-                               net_income_standalone
+                               net_income_standalone, has_prev_quarter
                         FROM v_financials_standalone_quarter
                         WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                              AND has_prev_quarter = 1
                     """,
                         [ticker, fy, fq],
                     )
@@ -158,9 +159,10 @@ def get_viewer_data(
                         """
                         SELECT revenue_standalone, gross_profit_standalone,
                                operating_income_standalone, ordinary_income_standalone,
-                               net_income_standalone
+                               net_income_standalone, has_prev_quarter
                         FROM v_financials_standalone_quarter
                         WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                              AND has_prev_quarter = 1
                     """,
                         [ticker, prev_fy, fq],
                     )
@@ -505,7 +507,8 @@ def get_financial_history(ticker_code: str) -> dict:
             """
             SELECT fiscal_year, fiscal_quarter,
                    revenue_standalone, operating_income_standalone,
-                   ordinary_income_standalone, net_income_standalone
+                   ordinary_income_standalone, net_income_standalone,
+                   has_prev_quarter
             FROM v_financials_standalone_quarter
             WHERE ticker_code = ? AND fiscal_quarter IN ('Q1','Q2','Q3','Q4')
             ORDER BY fiscal_year DESC,
@@ -539,9 +542,12 @@ def get_financial_history(ticker_code: str) -> dict:
             return cur_cum["eps"] - prev_cum["eps"]
 
         # YoY計算用の辞書
+        # has_prev_quarter = 0 の行は登録しない（不正確なstandalone値をYoY計算に使わない）
         sq_map: dict[tuple[str, str], dict] = {}
         for r in sq_rows:
             fy, fq = r["fiscal_year"], r["fiscal_quarter"]
+            if not r["has_prev_quarter"]:
+                continue  # 前四半期データ欠損の行はYoY計算に使用しない
             sq_map[(fy, fq)] = {
                 "revenue_standalone": r["revenue_standalone"],
                 "operating_income_standalone": r["operating_income_standalone"],
@@ -555,6 +561,27 @@ def get_financial_history(ticker_code: str) -> dict:
         quarterly_list = []
         for r in display_sq:
             fy, fq = r["fiscal_year"], r["fiscal_quarter"]
+            has_prev = r["has_prev_quarter"]
+
+            if not has_prev:
+                # 前四半期データ欠損: 単独四半期を正しく計算できないため「-」表示
+                entry = {
+                    "label": _q_label_short(fy, fq),
+                    "revenue": None,
+                    "revenue_yoy_pct": None,
+                    "operating_income": None,
+                    "operating_income_yoy_pct": None,
+                    "ordinary_income": None,
+                    "ordinary_income_yoy_pct": None,
+                    "net_income": None,
+                    "net_income_yoy_pct": None,
+                    "eps": None,
+                    "eps_yoy_pct": None,
+                }
+                quarterly_list.append(entry)
+                continue
+
+            # 以下は既存のロジック（前四半期データありの場合）
             prev_fy = str(int(fy) - 1)
             cur_data = sq_map.get((fy, fq), {})
             prev_data = sq_map.get((prev_fy, fq), {})
