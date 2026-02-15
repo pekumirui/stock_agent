@@ -25,7 +25,7 @@ def get_viewer_data(
     """
     指定日の決算発表一覧データを取得。
 
-    QoQ計算: 単独四半期の前年同期比（v_financials_standalone_quarter使用）
+    QoQ計算: 単独四半期の前四半期比（v_financials_standalone_quarter使用）
     YoY計算: 累計ベースの前年同期比（v_financials_yoy使用）
 
     注意: announcementsテーブルが存在しない場合（Agent A未完了）は、
@@ -139,53 +139,61 @@ def get_viewer_data(
             # ビューが存在しない場合はスキップ
             try:
                 if fy and fq and fq != "FY":
-                    # 前年同期の単独四半期と比較
-                    prev_fy = str(int(fy) - 1)
+                    # 前四半期の単独四半期と比較
+                    prev_q_map = {
+                        "Q2": ("Q1", fy),
+                        "Q3": ("Q2", fy),
+                        "Q4": ("Q3", fy),
+                        "Q1": ("Q4", str(int(fy) - 1)),
+                    }
+                    prev_info = prev_q_map.get(fq)
+                    if prev_info:
+                        prev_fq, prev_fy_q = prev_info
 
-                    cur_cursor = conn.execute(
-                        """
-                        SELECT revenue_standalone, gross_profit_standalone,
-                               operating_income_standalone, ordinary_income_standalone,
-                               net_income_standalone, has_prev_quarter
-                        FROM v_financials_standalone_quarter
-                        WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-                              AND has_prev_quarter = 1
-                    """,
-                        [ticker, fy, fq],
-                    )
-                    cur_sq = cur_cursor.fetchone()
+                        cur_cursor = conn.execute(
+                            """
+                            SELECT revenue_standalone, gross_profit_standalone,
+                                   operating_income_standalone, ordinary_income_standalone,
+                                   net_income_standalone, has_prev_quarter
+                            FROM v_financials_standalone_quarter
+                            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                                  AND has_prev_quarter = 1
+                        """,
+                            [ticker, fy, fq],
+                        )
+                        cur_sq = cur_cursor.fetchone()
 
-                    prev_cursor = conn.execute(
-                        """
-                        SELECT revenue_standalone, gross_profit_standalone,
-                               operating_income_standalone, ordinary_income_standalone,
-                               net_income_standalone, has_prev_quarter
-                        FROM v_financials_standalone_quarter
-                        WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-                              AND has_prev_quarter = 1
-                    """,
-                        [ticker, prev_fy, fq],
-                    )
-                    prev_sq = prev_cursor.fetchone()
+                        prev_cursor = conn.execute(
+                            """
+                            SELECT revenue_standalone, gross_profit_standalone,
+                                   operating_income_standalone, ordinary_income_standalone,
+                                   net_income_standalone, has_prev_quarter
+                            FROM v_financials_standalone_quarter
+                            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                                  AND has_prev_quarter = 1
+                        """,
+                            [ticker, prev_fy_q, prev_fq],
+                        )
+                        prev_sq = prev_cursor.fetchone()
 
-                    if cur_sq and prev_sq:
-                        for field, key in [
-                            ("revenue_standalone", "revenue_qoq"),
-                            ("gross_profit_standalone", "gross_profit_qoq"),
-                            ("operating_income_standalone", "operating_income_qoq"),
-                            ("ordinary_income_standalone", "ordinary_income_qoq"),
-                            ("net_income_standalone", "net_income_qoq"),
-                        ]:
-                            cur_val = cur_sq[field]
-                            prev_val = prev_sq[field]
-                            if (
-                                cur_val is not None
-                                and prev_val is not None
-                                and prev_val != 0
-                            ):
-                                data[key] = round(
-                                    (cur_val - prev_val) * 100.0 / abs(prev_val), 1
-                                )
+                        if cur_sq and prev_sq:
+                            for field, key in [
+                                ("revenue_standalone", "revenue_qoq"),
+                                ("gross_profit_standalone", "gross_profit_qoq"),
+                                ("operating_income_standalone", "operating_income_qoq"),
+                                ("ordinary_income_standalone", "ordinary_income_qoq"),
+                                ("net_income_standalone", "net_income_qoq"),
+                            ]:
+                                cur_val = cur_sq[field]
+                                prev_val = prev_sq[field]
+                                if (
+                                    cur_val is not None
+                                    and prev_val is not None
+                                    and prev_val != 0
+                                ):
+                                    data[key] = round(
+                                        (cur_val - prev_val) * 100.0 / abs(prev_val), 1
+                                    )
             except Exception:
                 pass  # ビュー未作成時は無視
 
@@ -582,9 +590,20 @@ def get_financial_history(ticker_code: str) -> dict:
                 continue
 
             # 以下は既存のロジック（前四半期データありの場合）
-            prev_fy = str(int(fy) - 1)
+            # 前四半期との比較（QoQ）
+            prev_q_map = {
+                "Q2": ("Q1", fy),
+                "Q3": ("Q2", fy),
+                "Q4": ("Q3", fy),
+                "Q1": ("Q4", str(int(fy) - 1)),
+            }
+            prev_info = prev_q_map.get(fq)
             cur_data = sq_map.get((fy, fq), {})
-            prev_data = sq_map.get((prev_fy, fq), {})
+            if prev_info:
+                prev_fq, prev_fy_q = prev_info
+                prev_data = sq_map.get((prev_fy_q, prev_fq), {})
+            else:
+                prev_data = {}
 
             eps_sa = cur_data.get("eps_standalone")
             eps_sa_prev = prev_data.get("eps_standalone")
