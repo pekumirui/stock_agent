@@ -380,7 +380,10 @@ SELECT
     f.ticker_code,
     c.company_name,
     f.fiscal_year,
-    f.fiscal_quarter,
+    CASE f.fiscal_quarter
+        WHEN 'FY' THEN 'Q4'
+        ELSE f.fiscal_quarter
+    END AS fiscal_quarter,
     f.announcement_date,
     f.announcement_time,
     CASE f.fiscal_quarter
@@ -421,7 +424,8 @@ LEFT JOIN financials prev ON (
         WHEN 'Q2' THEN 'Q1'
         WHEN 'Q3' THEN 'Q2'
         WHEN 'Q4' THEN 'Q3'
+        WHEN 'FY' THEN 'Q3'
         ELSE NULL
     END
 )
-WHERE f.fiscal_quarter != 'FY';
+WHERE f.fiscal_quarter IN ('Q1', 'Q2', 'Q3', 'Q4', 'FY');
