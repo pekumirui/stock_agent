@@ -62,4 +62,4 @@ venv/
 logs/*
 
 webUI/*
-AI-bot.key.pem
+AI-bot.key.pem.worktrees/
