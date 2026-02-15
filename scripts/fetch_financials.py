@@ -701,24 +701,47 @@ def _wareki_to_seireki(text: str) -> str:
     return text
 
 
-def _calc_period_months(start: str, end: str) -> int:
-    """periodStartとperiodEndの月数差を計算（YYYY-MM-DD形式）"""
-    start_year, start_month = int(start[:4]), int(start[5:7])
-    end_year, end_month = int(end[:4]), int(end[5:7])
-    return (end_year - start_year) * 12 + (end_month - start_month)
+# XBRLファイル名テンプレートコード → fiscal_quarter マッピング
+XBRL_TEMPLATE_TO_QUARTER = {
+    'q1r': 'Q1', 'q2r': 'Q2', 'q3r': 'Q3', 'q4r': 'Q4',
+    'asr': 'FY', 'ssr': 'Q2', 'esr': 'FY',
+}
 
 
-def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str | None]:
+def _detect_quarter_from_xbrl_filename(extracted_paths: list) -> Optional[str]:
+    """XBRLファイル名のテンプレートコード(q1r等)からfiscal_quarterを判定
+
+    extracted_pathsにmanifestのみ含まれる場合、同じディレクトリ内の
+    兄弟ファイルも走査してテンプレートコードを検出する。
     """
-    EDINET書類情報からfiscal_yearとfiscal_quarterを判定
+    for path in extracted_paths:
+        m = re.search(r'jpcrp\d+-(\w+)-\d+', path.name)
+        if m:
+            return XBRL_TEMPLATE_TO_QUARTER.get(m.group(1))
+    # マッチしなければ兄弟ファイルを走査
+    checked_dirs = set()
+    for path in extracted_paths:
+        parent = path.parent
+        if parent in checked_dirs:
+            continue
+        checked_dirs.add(parent)
+        for sibling in parent.iterdir():
+            m = re.search(r'jpcrp\d+-(\w+)-\d+', sibling.name)
+            if m:
+                return XBRL_TEMPLATE_TO_QUARTER.get(m.group(1))
+    return None
 
-    docDescriptionから「第N四半期」「YYYY年M月期」等のパターンを抽出。
-    四半期が判定不能な場合はfiscal_quarterにNoneを返す。
+
+def _detect_fiscal_year(doc_info: dict) -> str:
+    """
+    EDINET書類情報からfiscal_yearを判定
+
+    docDescriptionから「YYYY年M月期」パターンを抽出。
+    フォールバックとしてperiodStart/periodEndの年を使用。
 
     Returns:
-        (fiscal_year: str, fiscal_quarter: str | None)
+        fiscal_year: str
     """
-    doc_type = doc_info.get('docTypeCode', '')
     period_end = doc_info.get('periodEnd', '')
     doc_description = doc_info.get('docDescription', '')
 
@@ -726,56 +749,25 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str | None]:
     normalized_desc = unicodedata.normalize('NFKC', doc_description)
     normalized_desc = _wareki_to_seireki(normalized_desc)
 
-    # fiscal_quarter の判定
-    if doc_type == '120':
-        fiscal_quarter = 'FY'
-    elif doc_type == '160':
-        fiscal_quarter = 'Q2'
-    elif doc_type == '140':
-        # 四半期報告書: docDescriptionから「第N四半期」を抽出
-        q_match = re.search(r'第([1-4])四半期', normalized_desc)
-        if q_match:
-            fiscal_quarter = f'Q{q_match.group(1)}'
-        else:
-            # periodStart/periodEnd から期間月数で推定
-            period_start = doc_info.get('periodStart', '')
-            if period_start and period_end and len(period_start) >= 7 and len(period_end) >= 7:
-                months = _calc_period_months(period_start, period_end)
-                if months <= 4:
-                    fiscal_quarter = 'Q1'
-                elif months <= 7:
-                    fiscal_quarter = 'Q2'
-                elif months <= 10:
-                    fiscal_quarter = 'Q3'
-                else:
-                    fiscal_quarter = 'FY'
-                print(f"    [INFO] 期間月数({months}ヶ月)から{fiscal_quarter}と判定: {doc_description}")
-            else:
-                fiscal_quarter = None
-                print(f"    [WARN] 四半期番号が判定不能のためスキップ: {doc_description}")
-    else:
-        fiscal_quarter = 'FY'
-
     # fiscal_year の判定
     # docDescriptionから「YYYY年M月期」パターンを抽出（TDnet方式と同じ）
     year_match = re.search(r'(\d{4})年.*?期', normalized_desc)
     if year_match:
-        fiscal_year = year_match.group(1)
-    else:
-        # フォールバック: periodStartから決算年度を算出
-        # periodStart月==1 → 12月決算（同年）、それ以外 → 翌年に決算期末
-        period_start = doc_info.get('periodStart', '')
-        if period_start and len(period_start) >= 7:
-            start_year = int(period_start[:4])
-            start_month = int(period_start[5:7])
-            fiscal_year = str(start_year) if start_month == 1 else str(start_year + 1)
-        elif period_end:
-            fiscal_year = period_end[:4]
-        else:
-            submit_date = doc_info.get('submitDateTime', '')[:10]
-            fiscal_year = submit_date[:4]
+        return year_match.group(1)
 
-    return fiscal_year, fiscal_quarter
+    # フォールバック: periodStartから決算年度を算出
+    # periodStart月==1 → 12月決算（同年）、それ以外 → 翌年に決算期末
+    period_start = doc_info.get('periodStart', '')
+    if period_start and len(period_start) >= 7:
+        start_year = int(period_start[:4])
+        start_month = int(period_start[5:7])
+        return str(start_year) if start_month == 1 else str(start_year + 1)
+
+    if period_end:
+        return period_end[:4]
+
+    submit_date = doc_info.get('submitDateTime', '')[:10]
+    return submit_date[:4]
 
 
 def process_document(client: EdinetClient, doc_info: dict,
@@ -859,9 +851,11 @@ def process_document(client: EdinetClient, doc_info: dict,
             return False
 
         # 決算期を判定
-        fiscal_year, fiscal_quarter = _detect_edinet_quarter(doc_info)
+        fiscal_quarter = _detect_quarter_from_xbrl_filename(extracted_paths)
         if fiscal_quarter is None:
+            print(f"    [WARN] XBRLテンプレートから四半期判定不能のためスキップ")
             return False
+        fiscal_year = _detect_fiscal_year(doc_info)
 
         # DBに保存
         insert_financial(

@@ -17,10 +17,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from fetch_financials import (
     XBRL_FACT_MAPPING,
     XBRL_FACT_MAPPING_IFRS,
+    XBRL_TEMPLATE_TO_QUARTER,
     _is_jppfs_namespace,
     _is_supported_namespace,
     _is_current_period_context,
-    _detect_edinet_quarter,
+    _detect_fiscal_year,
+    _detect_quarter_from_xbrl_filename,
     _extract_fiscal_end_date_from_xbrl,
     extract_edinet_zip,
 )
@@ -375,189 +377,129 @@ class TestExtractEdinetZip:
             self._cleanup_result(result)
 
 
-class TestDetectEdinetQuarter:
-    """EDINET書類情報からのfiscal_year/fiscal_quarter判定テスト"""
+class TestDetectQuarterFromXbrlFilename:
+    """XBRLファイル名テンプレートコードからのfiscal_quarter判定テスト"""
 
-    def test_annual_report(self):
-        """有価証券報告書(120) → FY"""
-        doc = {'docTypeCode': '120', 'periodEnd': '2024-03-31', 'docDescription': '有価証券報告書'}
-        year, quarter = _detect_edinet_quarter(doc)
-        assert quarter == 'FY'
-        assert year == '2024'
+    def _make_paths(self, filename):
+        """テスト用Pathリストを生成"""
+        return [Path(f'/tmp/{filename}')]
 
-    def test_semiannual_report(self):
-        """半期報告書(160) → Q2"""
-        doc = {'docTypeCode': '160', 'periodEnd': '2023-09-30', 'docDescription': '半期報告書'}
-        year, quarter = _detect_edinet_quarter(doc)
-        assert quarter == 'Q2'
+    def test_q1r(self):
+        paths = self._make_paths('jpcrp040300-q1r-001_E01234-000_2023-06-30_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q1'
 
-    def test_quarterly_report_q1(self):
-        """四半期報告書(140) 第1四半期 → Q1"""
-        doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-06-30',
-            'docDescription': '第1四半期報告書',
-        }
-        _, quarter = _detect_edinet_quarter(doc)
-        assert quarter == 'Q1'
+    def test_q2r(self):
+        paths = self._make_paths('jpcrp040300-q2r-001_E01234-000_2023-09-30_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q2'
 
-    def test_quarterly_report_q3(self):
-        """四半期報告書(140) 第3四半期 → Q3"""
-        doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-12-31',
-            'docDescription': '第3四半期報告書',
-        }
-        _, quarter = _detect_edinet_quarter(doc)
-        assert quarter == 'Q3'
+    def test_q3r(self):
+        paths = self._make_paths('jpcrp040300-q3r-001_E01234-000_2023-12-31_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q3'
 
-    def test_quarterly_report_q2(self):
-        """四半期報告書(140) 第2四半期（例外的） → Q2"""
-        doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-09-30',
-            'docDescription': '第2四半期報告書',
-        }
-        _, quarter = _detect_edinet_quarter(doc)
-        assert quarter == 'Q2'
+    def test_q4r(self):
+        paths = self._make_paths('jpcrp040300-q4r-001_E01234-000_2024-03-31_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q4'
+
+    def test_asr(self):
+        paths = self._make_paths('jpcrp030000-asr-001_E01234-000_2024-03-31_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'FY'
+
+    def test_ssr(self):
+        paths = self._make_paths('jpcrp040300-ssr-001_E01234-000_2024-09-30_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q2'
+
+    def test_esr(self):
+        paths = self._make_paths('jpcrp030000-esr-001_E01234-000_2024-03-31_ixbrl.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) == 'FY'
+
+    def test_no_match(self):
+        paths = self._make_paths('some_random_file.htm')
+        assert _detect_quarter_from_xbrl_filename(paths) is None
+
+    def test_empty_paths(self):
+        assert _detect_quarter_from_xbrl_filename([]) is None
+
+    def test_multiple_files_first_match(self):
+        """複数ファイルの場合、最初にマッチしたものを使用"""
+        paths = [
+            Path('/tmp/0000000_header_jpcrp040300-q3r-001_E01234_ixbrl.htm'),
+            Path('/tmp/0104010_honbun_jpcrp040300-q3r-001_E01234_ixbrl.htm'),
+        ]
+        assert _detect_quarter_from_xbrl_filename(paths) == 'Q3'
+
+    def test_manifest_only_with_sibling_xbrl(self, tmp_path):
+        """manifestのみの場合、兄弟ファイルからテンプレートコード検出"""
+        pub_dir = tmp_path / "XBRL" / "PublicDoc"
+        pub_dir.mkdir(parents=True)
+        manifest = pub_dir / "manifest_PublicDoc.xml"
+        manifest.write_text("<manifest/>")
+        xbrl_file = pub_dir / "jpcrp040300-ssr-001_E01321-000_2025-09-30_01_2025-11-12.xbrl"
+        xbrl_file.write_text("")
+        assert _detect_quarter_from_xbrl_filename([manifest]) == 'Q2'
+
+    def test_manifest_only_without_sibling_xbrl(self, tmp_path):
+        """manifestのみで兄弟にjpcrpファイルがない場合 → None"""
+        pub_dir = tmp_path / "XBRL" / "PublicDoc"
+        pub_dir.mkdir(parents=True)
+        manifest = pub_dir / "manifest_PublicDoc.xml"
+        manifest.write_text("<manifest/>")
+        other_file = pub_dir / "some_other_file.xml"
+        other_file.write_text("")
+        assert _detect_quarter_from_xbrl_filename([manifest]) is None
+
+
+class TestDetectFiscalYear:
+    """EDINET書類情報からのfiscal_year判定テスト"""
 
     def test_fiscal_year_from_doc_description(self):
-        """docDescriptionから年度を抽出（2024年3月期Q1）"""
+        """docDescriptionから年度を抽出（2024年3月期）"""
         doc = {
-            'docTypeCode': '140',
             'periodEnd': '2023-06-30',
             'docDescription': '2024年3月期 第1四半期報告書',
         }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2024'
-        assert quarter == 'Q1'
+        assert _detect_fiscal_year(doc) == '2024'
 
-    def test_fiscal_year_from_doc_description_q3(self):
-        """docDescriptionから年度を抽出（2024年3月期Q3）"""
+    def test_fiscal_year_from_doc_description_december(self):
+        """12月決算企業（2024年12月期）"""
         doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-12-31',
-            'docDescription': '2024年3月期 第3四半期報告書',
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2024'
-        assert quarter == 'Q3'
-
-    def test_fiscal_year_fallback_to_period_end(self):
-        """docDescriptionに年度がない場合、periodEndから取得"""
-        doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-06-30',
-            'docDescription': '第1四半期報告書',
-        }
-        year, _ = _detect_edinet_quarter(doc)
-        assert year == '2023'  # periodEnd[:4]へフォールバック
-
-    def test_december_fiscal_year_q1(self):
-        """12月決算企業のQ1（2024年12月期 第1四半期）"""
-        doc = {
-            'docTypeCode': '140',
             'periodEnd': '2024-03-31',
             'docDescription': '2024年12月期 第1四半期報告書',
         }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2024'
-        assert quarter == 'Q1'
+        assert _detect_fiscal_year(doc) == '2024'
 
-    def test_no_doc_description(self):
-        """docDescriptionが空の場合は判定不能でNone"""
+    def test_fiscal_year_fallback_to_period_start(self):
+        """periodStart=4月→翌年3月期"""
         doc = {
-            'docTypeCode': '140',
-            'periodEnd': '2023-06-30',
-            'docDescription': '',
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2023'
-        assert quarter is None  # 判定不能
-
-    def test_period_based_quarter_detection_q1(self):
-        """期間月数からQ1を判定（docDescriptionに四半期情報なし）"""
-        doc = {
-            'docTypeCode': '140',
             'periodStart': '2025-04-01',
             'periodEnd': '2025-06-30',
-            'docDescription': '四半期報告書',  # 第N四半期の記載なし
+            'docDescription': '四半期報告書',
         }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2026'  # 4月開始 → 翌年3月期
-        assert quarter == 'Q1'  # 2ヶ月 → Q1
+        assert _detect_fiscal_year(doc) == '2026'
 
-    def test_period_based_quarter_detection_q2(self):
-        """期間月数からQ2を判定（docDescriptionに四半期情報なし）"""
+    def test_fiscal_year_december_with_period_start(self):
+        """periodStart=1月→同年12月期"""
         doc = {
-            'docTypeCode': '140',
-            'periodStart': '2025-04-01',
-            'periodEnd': '2025-09-30',
-            'docDescription': '四半期報告書',  # 第N四半期の記載なし
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2026'  # 4月開始 → 翌年3月期
-        assert quarter == 'Q2'  # 5ヶ月 → Q2
-
-    def test_period_based_quarter_detection_q3(self):
-        """期間月数からQ3を判定（docDescriptionに四半期情報なし）"""
-        doc = {
-            'docTypeCode': '140',
-            'periodStart': '2025-04-01',
-            'periodEnd': '2025-12-31',
-            'docDescription': '四半期報告書',  # 第N四半期の記載なし
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2026'  # 4月開始 → 翌年3月期
-        assert quarter == 'Q3'  # 8ヶ月 → Q3
-
-    def test_june_fiscal_year_q2_with_period_start(self):
-        """6月決算企業のQ2: periodStart=7月→fiscal_year=翌年"""
-        doc = {
-            'docTypeCode': '160',
-            'periodStart': '2025-07-01',
-            'periodEnd': '2025-12-31',
-            'docDescription': '半期報告書',
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2026'
-        assert quarter == 'Q2'
-
-    def test_march_fiscal_year_q1_with_period_start(self):
-        """3月決算企業のQ1: periodStart=4月→fiscal_year=翌年"""
-        doc = {
-            'docTypeCode': '140',
-            'periodStart': '2025-04-01',
-            'periodEnd': '2025-06-30',
-            'docDescription': '第1四半期報告書',
-        }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2026'
-        assert quarter == 'Q1'
-
-    def test_december_fiscal_year_q1_with_period_start(self):
-        """12月決算企業のQ1: periodStart=1月→fiscal_year=同年"""
-        doc = {
-            'docTypeCode': '140',
             'periodStart': '2025-01-01',
             'periodEnd': '2025-03-31',
             'docDescription': '第1四半期報告書',
         }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2025'
-        assert quarter == 'Q1'
+        assert _detect_fiscal_year(doc) == '2025'
 
-    def test_march_fiscal_year_fy_with_period_start(self):
-        """3月決算FY: periodStart=4月→fiscal_year=翌年"""
+    def test_fiscal_year_fallback_to_period_end(self):
+        """periodStartもdocDescriptionもない場合、periodEnd[:4]"""
         doc = {
-            'docTypeCode': '120',
-            'periodStart': '2024-04-01',
-            'periodEnd': '2025-03-31',
-            'docDescription': '有価証券報告書',
+            'periodEnd': '2023-06-30',
+            'docDescription': '',
         }
-        year, quarter = _detect_edinet_quarter(doc)
-        assert year == '2025'
-        assert quarter == 'FY'
+        assert _detect_fiscal_year(doc) == '2023'
+
+    def test_fiscal_year_fallback_to_submit_date(self):
+        """periodEndもない場合、submitDateTime[:4]"""
+        doc = {
+            'docDescription': '',
+            'submitDateTime': '2023-08-10 10:00:00',
+        }
+        assert _detect_fiscal_year(doc) == '2023'
 
 
 class TestExtractFiscalEndDateFromXbrl:
