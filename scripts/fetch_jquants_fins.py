@@ -223,7 +223,8 @@ def map_to_financial(row: dict) -> Optional[dict]:
 
 def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
     """同一 (Code, CurFYEn, quarter) で連結/非連結が重複する場合、連結を優先する。
-    さらに同一グループ内ではDiscNo（開示番号）が大きいものを採用。
+    さらに同一グループ内ではDiscNo（開示番号）が大きいもの（最新の値）を採用。
+    DiscDateはグループ内の最古日付（決算発表日）に差し替える。
     """
     if df.empty:
         return df
@@ -252,8 +253,16 @@ def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
     # CurFYEnをグループキーに使用（日付文字列に変換）
     df['_fy_key'] = df['CurFYEn'].apply(_format_date)
 
-    # 同一 (Code, _fy_key, _quarter) で最初の行を取る
-    deduped = df.drop_duplicates(subset=['Code', '_fy_key', '_quarter'], keep='first')
+    # 同一 (Code, _fy_key, _quarter) で最初の行を取る（最新DiscNo = 最新の値）
+    group_keys = ['Code', '_fy_key', '_quarter']
+    deduped = df.drop_duplicates(subset=group_keys, keep='first')
+
+    # DiscDateをグループ内最古に差し替え（期中レビュー日ではなく決算発表日を採用）
+    if 'DiscDate' in df.columns:
+        min_dates = df.groupby(group_keys)['DiscDate'].min()
+        deduped = deduped.set_index(group_keys)
+        deduped['DiscDate'] = min_dates
+        deduped = deduped.reset_index()
 
     return deduped
 
