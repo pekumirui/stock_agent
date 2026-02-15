@@ -59,16 +59,8 @@ TDNET_REQUEST_SLEEP = 0.5  # 秒
 
 # 決算期判定パターン
 FISCAL_YEAR_PATTERN = r'(\d{4})年.*?期'
-QUARTER_PATTERN = r'第([1-3])四半期'
+QUARTER_PATTERN = r'第([1-4])四半期'
 FULL_YEAR_KEYWORDS = ['通期', '本決算', '期末']
-
-# 月から四半期への変換（フォールバック用）
-MONTH_TO_QUARTER = {
-    3: 'FY', 4: 'Q1', 5: 'Q1', 6: 'Q1',
-    7: 'Q2', 8: 'Q2', 9: 'Q2',
-    10: 'Q3', 11: 'Q3', 12: 'Q3',
-    1: 'Q3', 2: 'FY'
-}
 
 
 # ============================================
@@ -119,10 +111,7 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
         if quarter_match:
             q_num = quarter_match.group(1)
             fiscal_quarter = f'Q{q_num}'
-        else:
-            # フォールバック: 発表月から推定
-            month = int(announcement_date[5:7])
-            fiscal_quarter = MONTH_TO_QUARTER.get(month, 'FY')
+        # else: fiscal_quarter = 'FY' (デフォルト値を使用)
 
     return fiscal_year, fiscal_quarter
 
@@ -302,13 +291,7 @@ class TdnetClient:
         # TDnetは証券コードに末尾チェックデジットを付加 (例: 72030, 285A0)
         code_text = code_td.get_text().replace("\n", "").replace("\u3000", "").replace(" ", "")
         if len(code_text) >= 5:
-            # 最後の1文字を除去してバリデーション
-            potential_ticker = code_text[:-1]
-            if is_valid_ticker_code(potential_ticker):
-                ticker_code = potential_ticker
-            else:
-                # フォールバック: 従来ロジック
-                ticker_code = code_text[:-1]
+            ticker_code = code_text[:-1]
         else:
             ticker_code = code_text
 

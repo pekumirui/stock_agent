@@ -465,7 +465,7 @@ class TestDetectEdinetQuarter:
         assert quarter == 'Q1'
 
     def test_no_doc_description(self):
-        """docDescriptionが空の場合のフォールバック"""
+        """docDescriptionが空の場合は判定不能でNone"""
         doc = {
             'docTypeCode': '140',
             'periodEnd': '2023-06-30',
@@ -473,7 +473,43 @@ class TestDetectEdinetQuarter:
         }
         year, quarter = _detect_edinet_quarter(doc)
         assert year == '2023'
-        assert quarter == 'Q1'  # フォールバック
+        assert quarter is None  # 判定不能
+
+    def test_period_based_quarter_detection_q1(self):
+        """期間月数からQ1を判定（docDescriptionに四半期情報なし）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodStart': '2025-04-01',
+            'periodEnd': '2025-06-30',
+            'docDescription': '四半期報告書',  # 第N四半期の記載なし
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2026'  # 4月開始 → 翌年3月期
+        assert quarter == 'Q1'  # 2ヶ月 → Q1
+
+    def test_period_based_quarter_detection_q2(self):
+        """期間月数からQ2を判定（docDescriptionに四半期情報なし）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodStart': '2025-04-01',
+            'periodEnd': '2025-09-30',
+            'docDescription': '四半期報告書',  # 第N四半期の記載なし
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2026'  # 4月開始 → 翌年3月期
+        assert quarter == 'Q2'  # 5ヶ月 → Q2
+
+    def test_period_based_quarter_detection_q3(self):
+        """期間月数からQ3を判定（docDescriptionに四半期情報なし）"""
+        doc = {
+            'docTypeCode': '140',
+            'periodStart': '2025-04-01',
+            'periodEnd': '2025-12-31',
+            'docDescription': '四半期報告書',  # 第N四半期の記載なし
+        }
+        year, quarter = _detect_edinet_quarter(doc)
+        assert year == '2026'  # 4月開始 → 翌年3月期
+        assert quarter == 'Q3'  # 8ヶ月 → Q3
 
     def test_june_fiscal_year_q2_with_period_start(self):
         """6月決算企業のQ2: periodStart=7月→fiscal_year=翌年"""

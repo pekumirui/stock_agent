@@ -137,83 +137,77 @@ def get_viewer_data(
 
             # QoQ計算（v_financials_standalone_quarter 使用 - Agent A作成予定）
             # ビューが存在しない場合はスキップ
-            try:
-                if fy and fq and fq != "FY":
-                    # 前四半期の単独四半期と比較
-                    prev_q_map = {
-                        "Q2": ("Q1", fy),
-                        "Q3": ("Q2", fy),
-                        "Q4": ("Q3", fy),
-                        "Q1": ("Q4", str(int(fy) - 1)),
-                    }
-                    prev_info = prev_q_map.get(fq)
-                    if prev_info:
-                        prev_fq, prev_fy_q = prev_info
+            if fy and fq and fq != "FY":
+                # 前四半期の単独四半期と比較
+                prev_q_map = {
+                    "Q2": ("Q1", fy),
+                    "Q3": ("Q2", fy),
+                    "Q4": ("Q3", fy),
+                    "Q1": ("Q4", str(int(fy) - 1)),
+                }
+                prev_info = prev_q_map.get(fq)
+                if prev_info:
+                    prev_fq, prev_fy_q = prev_info
 
-                        cur_cursor = conn.execute(
-                            """
-                            SELECT revenue_standalone, gross_profit_standalone,
-                                   operating_income_standalone, ordinary_income_standalone,
-                                   net_income_standalone, has_prev_quarter
-                            FROM v_financials_standalone_quarter
-                            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-                                  AND has_prev_quarter = 1
-                        """,
-                            [ticker, fy, fq],
-                        )
-                        cur_sq = cur_cursor.fetchone()
+                    cur_cursor = conn.execute(
+                        """
+                        SELECT revenue_standalone, gross_profit_standalone,
+                               operating_income_standalone, ordinary_income_standalone,
+                               net_income_standalone, has_prev_quarter
+                        FROM v_financials_standalone_quarter
+                        WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                              AND has_prev_quarter = 1
+                    """,
+                        [ticker, fy, fq],
+                    )
+                    cur_sq = cur_cursor.fetchone()
 
-                        prev_cursor = conn.execute(
-                            """
-                            SELECT revenue_standalone, gross_profit_standalone,
-                                   operating_income_standalone, ordinary_income_standalone,
-                                   net_income_standalone, has_prev_quarter
-                            FROM v_financials_standalone_quarter
-                            WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-                                  AND has_prev_quarter = 1
-                        """,
-                            [ticker, prev_fy_q, prev_fq],
-                        )
-                        prev_sq = prev_cursor.fetchone()
+                    prev_cursor = conn.execute(
+                        """
+                        SELECT revenue_standalone, gross_profit_standalone,
+                               operating_income_standalone, ordinary_income_standalone,
+                               net_income_standalone, has_prev_quarter
+                        FROM v_financials_standalone_quarter
+                        WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                              AND has_prev_quarter = 1
+                    """,
+                        [ticker, prev_fy_q, prev_fq],
+                    )
+                    prev_sq = prev_cursor.fetchone()
 
-                        if cur_sq and prev_sq:
-                            for field, key in [
-                                ("revenue_standalone", "revenue_qoq"),
-                                ("gross_profit_standalone", "gross_profit_qoq"),
-                                ("operating_income_standalone", "operating_income_qoq"),
-                                ("ordinary_income_standalone", "ordinary_income_qoq"),
-                                ("net_income_standalone", "net_income_qoq"),
-                            ]:
-                                cur_val = cur_sq[field]
-                                prev_val = prev_sq[field]
-                                if (
-                                    cur_val is not None
-                                    and prev_val is not None
-                                    and prev_val != 0
-                                ):
-                                    data[key] = round(
-                                        (cur_val - prev_val) * 100.0 / abs(prev_val), 1
-                                    )
-            except Exception:
-                pass  # ビュー未作成時は無視
+                    if cur_sq and prev_sq:
+                        for field, key in [
+                            ("revenue_standalone", "revenue_qoq"),
+                            ("gross_profit_standalone", "gross_profit_qoq"),
+                            ("operating_income_standalone", "operating_income_qoq"),
+                            ("ordinary_income_standalone", "ordinary_income_qoq"),
+                            ("net_income_standalone", "net_income_qoq"),
+                        ]:
+                            cur_val = cur_sq[field]
+                            prev_val = prev_sq[field]
+                            if (
+                                cur_val is not None
+                                and prev_val is not None
+                                and prev_val != 0
+                            ):
+                                data[key] = round(
+                                    (cur_val - prev_val) * 100.0 / abs(prev_val), 1
+                                )
 
             # 配当情報（management_forecastsから取得 - Agent A作成予定）
-            try:
-                div_cursor = conn.execute(
-                    """
-                    SELECT dividend_per_share FROM management_forecasts
-                    WHERE ticker_code = ? AND fiscal_year = ?
-                    ORDER BY announced_date DESC LIMIT 1
-                """,
-                    [ticker, fy],
+            div_cursor = conn.execute(
+                """
+                SELECT dividend_per_share FROM management_forecasts
+                WHERE ticker_code = ? AND fiscal_year = ?
+                ORDER BY announced_date DESC LIMIT 1
+            """,
+                [ticker, fy],
+            )
+            div_row = div_cursor.fetchone()
+            if div_row and div_row["dividend_per_share"]:
+                data["dividend_info"] = (
+                    f"合計{div_row['dividend_per_share']:.2f}円"
                 )
-                div_row = div_cursor.fetchone()
-                if div_row and div_row["dividend_per_share"]:
-                    data["dividend_info"] = (
-                        f"合計{div_row['dividend_per_share']:.2f}円"
-                    )
-            except Exception:
-                pass  # テーブル未作成時は無視
 
             rows.append(data)
 
@@ -249,20 +243,17 @@ def get_detail_data(ticker_code: str, target_date: str) -> dict:
         # 該当発表の fiscal_year, fiscal_quarter を取得
         # announcementsテーブル or financials テーブルから
         fy, fq = None, None
-        try:
-            cursor = conn.execute(
-                """
-                SELECT fiscal_year, fiscal_quarter FROM announcements
-                WHERE ticker_code = ? AND announcement_date = ?
-                LIMIT 1
-            """,
-                [ticker_code, target_date],
-            )
-            row = cursor.fetchone()
-            if row:
-                fy, fq = row["fiscal_year"], row["fiscal_quarter"]
-        except Exception:
-            pass
+        cursor = conn.execute(
+            """
+            SELECT fiscal_year, fiscal_quarter FROM announcements
+            WHERE ticker_code = ? AND announcement_date = ?
+            LIMIT 1
+        """,
+            [ticker_code, target_date],
+        )
+        row = cursor.fetchone()
+        if row:
+            fy, fq = row["fiscal_year"], row["fiscal_quarter"]
 
         if not fy:
             cursor = conn.execute(
@@ -309,36 +300,33 @@ def get_detail_data(ticker_code: str, target_date: str) -> dict:
             result["cumulative"] = _calc_changes(cum_row, prev_cum)
 
         # 会社予想（最新）
-        try:
-            cursor = conn.execute(
-                """
-                SELECT revenue, operating_income, ordinary_income, net_income,
-                       dividend_per_share, forecast_type, revision_direction
-                FROM management_forecasts
-                WHERE ticker_code = ? AND fiscal_year = ?
-                ORDER BY announced_date DESC LIMIT 1
-            """,
-                [ticker_code, fy],
-            )
-            fc_row = cursor.fetchone()
-            if fc_row:
-                result["forecast"] = dict(fc_row)
+        cursor = conn.execute(
+            """
+            SELECT revenue, operating_income, ordinary_income, net_income,
+                   dividend_per_share, forecast_type, revision_direction
+            FROM management_forecasts
+            WHERE ticker_code = ? AND fiscal_year = ?
+            ORDER BY announced_date DESC LIMIT 1
+        """,
+            [ticker_code, fy],
+        )
+        fc_row = cursor.fetchone()
+        if fc_row:
+            result["forecast"] = dict(fc_row)
 
-            # 期初予想
-            cursor = conn.execute(
-                """
-                SELECT revenue, operating_income, ordinary_income, net_income
-                FROM management_forecasts
-                WHERE ticker_code = ? AND fiscal_year = ? AND forecast_type = 'initial'
-                ORDER BY announced_date ASC LIMIT 1
-            """,
-                [ticker_code, fy],
-            )
-            init_row = cursor.fetchone()
-            if init_row:
-                result["initial_forecast"] = dict(init_row)
-        except Exception:
-            pass
+        # 期初予想
+        cursor = conn.execute(
+            """
+            SELECT revenue, operating_income, ordinary_income, net_income
+            FROM management_forecasts
+            WHERE ticker_code = ? AND fiscal_year = ? AND forecast_type = 'initial'
+            ORDER BY announced_date ASC LIMIT 1
+        """,
+            [ticker_code, fy],
+        )
+        init_row = cursor.fetchone()
+        if init_row:
+            result["initial_forecast"] = dict(init_row)
 
         return result
     finally:
@@ -640,79 +628,76 @@ def get_financial_history(ticker_code: str) -> dict:
         # ==================================================
         # 3. 会社予想（最新FY予想）
         # ==================================================
-        try:
-            fc_cursor = conn.execute(
+        fc_cursor = conn.execute(
+            """
+            SELECT fiscal_year,
+                   revenue, operating_income, ordinary_income, net_income, eps
+            FROM management_forecasts
+            WHERE ticker_code = ? AND fiscal_quarter = 'FY'
+            ORDER BY fiscal_year DESC, announced_date DESC
+            LIMIT 1
+            """,
+            [ticker_code],
+        )
+        fc_row = fc_cursor.fetchone()
+        if fc_row:
+            fc_fy = fc_row["fiscal_year"]
+            # 前年度FY実績との比較
+            fy_actual_cursor = conn.execute(
                 """
-                SELECT fiscal_year,
-                       revenue, operating_income, ordinary_income, net_income, eps
-                FROM management_forecasts
-                WHERE ticker_code = ? AND fiscal_quarter = 'FY'
-                ORDER BY fiscal_year DESC, announced_date DESC
+                SELECT revenue, operating_income, ordinary_income,
+                       net_income, eps
+                FROM financials
+                WHERE ticker_code = ? AND fiscal_year = ?
+                      AND fiscal_quarter = 'FY'
                 LIMIT 1
                 """,
-                [ticker_code],
+                [ticker_code, str(int(fc_fy) - 1)],
             )
-            fc_row = fc_cursor.fetchone()
-            if fc_row:
-                fc_fy = fc_row["fiscal_year"]
-                # 前年度FY実績との比較
+            fy_actual = fy_actual_cursor.fetchone()
+            # FYが無ければQ4累計を代用
+            if not fy_actual:
                 fy_actual_cursor = conn.execute(
                     """
                     SELECT revenue, operating_income, ordinary_income,
                            net_income, eps
                     FROM financials
                     WHERE ticker_code = ? AND fiscal_year = ?
-                          AND fiscal_quarter = 'FY'
+                          AND fiscal_quarter = 'Q4'
                     LIMIT 1
                     """,
                     [ticker_code, str(int(fc_fy) - 1)],
                 )
                 fy_actual = fy_actual_cursor.fetchone()
-                # FYが無ければQ4累計を代用
-                if not fy_actual:
-                    fy_actual_cursor = conn.execute(
-                        """
-                        SELECT revenue, operating_income, ordinary_income,
-                               net_income, eps
-                        FROM financials
-                        WHERE ticker_code = ? AND fiscal_year = ?
-                              AND fiscal_quarter = 'Q4'
-                        LIMIT 1
-                        """,
-                        [ticker_code, str(int(fc_fy) - 1)],
-                    )
-                    fy_actual = fy_actual_cursor.fetchone()
 
-                result["forecast"] = {
-                    "fiscal_year": fc_fy,
-                    "revenue": fc_row["revenue"],
-                    "revenue_yoy_pct": _yoy_pct(
-                        fc_row["revenue"],
-                        fy_actual["revenue"] if fy_actual else None,
-                    ),
-                    "operating_income": fc_row["operating_income"],
-                    "operating_income_yoy_pct": _yoy_pct(
-                        fc_row["operating_income"],
-                        fy_actual["operating_income"] if fy_actual else None,
-                    ),
-                    "ordinary_income": fc_row["ordinary_income"],
-                    "ordinary_income_yoy_pct": _yoy_pct(
-                        fc_row["ordinary_income"],
-                        fy_actual["ordinary_income"] if fy_actual else None,
-                    ),
-                    "net_income": fc_row["net_income"],
-                    "net_income_yoy_pct": _yoy_pct(
-                        fc_row["net_income"],
-                        fy_actual["net_income"] if fy_actual else None,
-                    ),
-                    "eps": fc_row["eps"],
-                    "eps_yoy_pct": _yoy_pct(
-                        fc_row["eps"],
-                        fy_actual["eps"] if fy_actual else None,
-                    ),
-                }
-        except Exception:
-            pass  # management_forecasts テーブル未作成時は無視
+            result["forecast"] = {
+                "fiscal_year": fc_fy,
+                "revenue": fc_row["revenue"],
+                "revenue_yoy_pct": _yoy_pct(
+                    fc_row["revenue"],
+                    fy_actual["revenue"] if fy_actual else None,
+                ),
+                "operating_income": fc_row["operating_income"],
+                "operating_income_yoy_pct": _yoy_pct(
+                    fc_row["operating_income"],
+                    fy_actual["operating_income"] if fy_actual else None,
+                ),
+                "ordinary_income": fc_row["ordinary_income"],
+                "ordinary_income_yoy_pct": _yoy_pct(
+                    fc_row["ordinary_income"],
+                    fy_actual["ordinary_income"] if fy_actual else None,
+                ),
+                "net_income": fc_row["net_income"],
+                "net_income_yoy_pct": _yoy_pct(
+                    fc_row["net_income"],
+                    fy_actual["net_income"] if fy_actual else None,
+                ),
+                "eps": fc_row["eps"],
+                "eps_yoy_pct": _yoy_pct(
+                    fc_row["eps"],
+                    fy_actual["eps"] if fy_actual else None,
+                ),
+            }
 
         return result
     finally:
