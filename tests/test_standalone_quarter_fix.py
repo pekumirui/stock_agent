@@ -156,7 +156,7 @@ class TestGetFinancialHistoryWithMissingPrev:
         assert quarterly["24/2Q"]["revenue"] is None
 
     def test_yoy_not_calculated_for_missing_prev(self, test_db):
-        """has_prev_quarter=0の行はYoY計算の参照元にならないこと"""
+        """has_prev_quarter=0の行はQoQ計算の参照元にならないこと"""
         upsert_company("8013", "テスト社H")
         # 2023: Q2のみ（Q1なし）
         insert_financial("8013", "2023", "Q2",
@@ -175,6 +175,6 @@ class TestGetFinancialHistoryWithMissingPrev:
 
         # 2024/Q2 standalone = 260 - 120 = 140
         assert quarterly["24/2Q"]["revenue"] == pytest.approx(140.0)
-        # 2023/Q2 は has_prev_quarter=0 なのでYoY計算の参照元にならない
-        # → 2024/Q2 の YoY% は None
-        assert quarterly["24/2Q"]["revenue_yoy_pct"] is None
+        # QoQ計算: 2024/Q2 は 2024/Q1 と比較（両方とも has_prev_quarter=1）
+        # revenue QoQ = (140 - 120) / 120 * 100 = 16.7%
+        assert quarterly["24/2Q"]["revenue_yoy_pct"] == pytest.approx(16.7, abs=0.1)
