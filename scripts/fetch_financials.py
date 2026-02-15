@@ -701,15 +701,22 @@ def _wareki_to_seireki(text: str) -> str:
     return text
 
 
-def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
+def _calc_period_months(start: str, end: str) -> int:
+    """periodStartとperiodEndの月数差を計算（YYYY-MM-DD形式）"""
+    start_year, start_month = int(start[:4]), int(start[5:7])
+    end_year, end_month = int(end[:4]), int(end[5:7])
+    return (end_year - start_year) * 12 + (end_month - start_month)
+
+
+def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str | None]:
     """
     EDINET書類情報からfiscal_yearとfiscal_quarterを判定
 
     docDescriptionから「第N四半期」「YYYY年M月期」等のパターンを抽出。
-    フォールバックとしてperiodEndの年を使用。
+    四半期が判定不能な場合はfiscal_quarterにNoneを返す。
 
     Returns:
-        (fiscal_year: str, fiscal_quarter: str)
+        (fiscal_year: str, fiscal_quarter: str | None)
     """
     doc_type = doc_info.get('docTypeCode', '')
     period_end = doc_info.get('periodEnd', '')
@@ -726,12 +733,26 @@ def _detect_edinet_quarter(doc_info: dict) -> tuple[str, str]:
         fiscal_quarter = 'Q2'
     elif doc_type == '140':
         # 四半期報告書: docDescriptionから「第N四半期」を抽出
-        q_match = re.search(r'第([1-3])四半期', normalized_desc)
+        q_match = re.search(r'第([1-4])四半期', normalized_desc)
         if q_match:
             fiscal_quarter = f'Q{q_match.group(1)}'
         else:
-            fiscal_quarter = 'Q1'  # フォールバック
-            print(f"    [WARN] 四半期番号が判定できずQ1にフォールバック: {doc_description}")
+            # periodStart/periodEnd から期間月数で推定
+            period_start = doc_info.get('periodStart', '')
+            if period_start and period_end and len(period_start) >= 7 and len(period_end) >= 7:
+                months = _calc_period_months(period_start, period_end)
+                if months <= 4:
+                    fiscal_quarter = 'Q1'
+                elif months <= 7:
+                    fiscal_quarter = 'Q2'
+                elif months <= 10:
+                    fiscal_quarter = 'Q3'
+                else:
+                    fiscal_quarter = 'FY'
+                print(f"    [INFO] 期間月数({months}ヶ月)から{fiscal_quarter}と判定: {doc_description}")
+            else:
+                fiscal_quarter = None
+                print(f"    [WARN] 四半期番号が判定不能のためスキップ: {doc_description}")
     else:
         fiscal_quarter = 'FY'
 
@@ -839,6 +860,8 @@ def process_document(client: EdinetClient, doc_info: dict,
 
         # 決算期を判定
         fiscal_year, fiscal_quarter = _detect_edinet_quarter(doc_info)
+        if fiscal_quarter is None:
+            return False
 
         # DBに保存
         insert_financial(

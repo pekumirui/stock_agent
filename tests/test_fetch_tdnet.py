@@ -71,8 +71,8 @@ class TestFiscalPeriodDetection:
             "2024-05-10"
         )
         assert fiscal_year == "2024"
-        # 四半期表記なし、発表月5月 → Q1 にフォールバック
-        assert quarter == "Q1"
+        # 四半期表記なし → デフォルト値 FY
+        assert quarter == "FY"
 
     def test_fallback_year_from_date(self):
         """年度のフォールバック（タイトルに年度なし）"""
@@ -154,28 +154,28 @@ class TestFiscalPeriodDetection:
         assert fiscal_year == "2025"
         assert quarter == "Q1"
 
-    def test_fallback_quarter_from_month(self):
-        """四半期のフォールバック（発表月から推定）"""
-        # 6月 → Q1
+    def test_no_fallback_defaults_to_fy(self):
+        """四半期表記がない場合はFYにデフォルト（月推定フォールバック廃止）"""
+        # 6月発表でも四半期表記なし → FY
         fiscal_year, quarter = detect_fiscal_period(
             "2024年3月期決算短信",
             "2024-06-30"
         )
-        assert quarter == "Q1"
+        assert quarter == "FY"
 
-        # 9月 → Q2
+        # 9月発表でも四半期表記なし → FY
         fiscal_year, quarter = detect_fiscal_period(
             "2024年3月期決算短信",
             "2024-09-30"
         )
-        assert quarter == "Q2"
+        assert quarter == "FY"
 
-        # 12月 → Q3
+        # 12月発表でも四半期表記なし → FY
         fiscal_year, quarter = detect_fiscal_period(
             "2024年3月期決算短信",
             "2024-12-31"
         )
-        assert quarter == "Q3"
+        assert quarter == "FY"
 
         # 3月 → FY
         fiscal_year, quarter = detect_fiscal_period(
