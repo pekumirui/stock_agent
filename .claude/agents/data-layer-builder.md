@@ -43,6 +43,13 @@ memory: project
 - ファイル名: `V{次の番号}__{snake_case説明}.sql`
 - 対応する rollback ファイルも作成
 - `db/schema.sql` にも新テーブル/ビュー定義を参照用として追記
+- **SQLite固有の注意:**
+  - `executescript()` はDDLに対してアトミックでない。テーブル再作成（CREATE新→INSERT→DROP旧→RENAME）が途中で失敗するとDBが壊れる
+  - テーブル再作成マイグレーションでは各ステップの冪等性を確保すること（`IF EXISTS` / `IF NOT EXISTS`）
+  - ビューを持つテーブルを再作成する場合、先にすべての依存ビューをDROPしてからテーブルをDROPすること
+- **マイグレーション管理テーブル `_yoyo_migration`:**
+  - PRIMARY KEYは `migration_hash`（`migration_id` ではない）
+  - 手動マーク時: `INSERT INTO _yoyo_migration (migration_hash, migration_id, applied_at_utc) VALUES ('V007__...', 'V007__...', '...')`
 
 ### 4. db_utils関数の追加
 - 既存パターンに従う:
@@ -61,6 +68,9 @@ memory: project
 - テスト用銘柄コードは 9xxx 番台を使用
 - `conftest.py` の fixture を活用
 - 新テーブルのクリーンアップを `conftest.py` に追加
+- `insert_financial()` には `fiscal_end_date` 必須（NOT NULL制約）
+- `get_connection()` は自動commitしない。直接SQLを実行するテストでは明示的に `conn.commit()` が必要
+- financials の UNIQUE制約は `(ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date)` の4カラム
 
 ## プロジェクト固有の規約
 
