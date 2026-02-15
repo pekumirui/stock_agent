@@ -19,18 +19,18 @@ def ticker_with_3yr_data(test_db):
 
     data = [
         # 2022年度
-        ("2022", "Q1", {"revenue": 80.0, "operating_income": 8.0, "ordinary_income": 7.0, "net_income": 5.0, "eps": 40.0}),
-        ("2022", "Q2", {"revenue": 170.0, "operating_income": 17.0, "ordinary_income": 15.0, "net_income": 11.0, "eps": 85.0}),
-        ("2022", "FY", {"revenue": 400.0, "operating_income": 40.0, "ordinary_income": 36.0, "net_income": 28.0, "eps": 180.0}),
+        ("2022", "Q1", {"revenue": 80.0, "operating_income": 8.0, "ordinary_income": 7.0, "net_income": 5.0, "eps": 40.0, "fiscal_end_date": "2021-06-30"}),
+        ("2022", "Q2", {"revenue": 170.0, "operating_income": 17.0, "ordinary_income": 15.0, "net_income": 11.0, "eps": 85.0, "fiscal_end_date": "2021-09-30"}),
+        ("2022", "FY", {"revenue": 400.0, "operating_income": 40.0, "ordinary_income": 36.0, "net_income": 28.0, "eps": 180.0, "fiscal_end_date": "2022-03-31"}),
         # 2023年度
-        ("2023", "Q1", {"revenue": 100.0, "operating_income": 10.0, "ordinary_income": 9.0, "net_income": 7.0, "eps": 50.0}),
-        ("2023", "Q2", {"revenue": 200.0, "operating_income": 20.0, "ordinary_income": 18.0, "net_income": 14.0, "eps": 100.0}),
-        ("2023", "Q3", {"revenue": 310.0, "operating_income": 31.0, "ordinary_income": 28.0, "net_income": 21.0, "eps": 150.0}),
-        ("2023", "FY", {"revenue": 450.0, "operating_income": 50.0, "ordinary_income": 45.0, "net_income": 35.0, "eps": 200.0}),
+        ("2023", "Q1", {"revenue": 100.0, "operating_income": 10.0, "ordinary_income": 9.0, "net_income": 7.0, "eps": 50.0, "fiscal_end_date": "2022-06-30"}),
+        ("2023", "Q2", {"revenue": 200.0, "operating_income": 20.0, "ordinary_income": 18.0, "net_income": 14.0, "eps": 100.0, "fiscal_end_date": "2022-09-30"}),
+        ("2023", "Q3", {"revenue": 310.0, "operating_income": 31.0, "ordinary_income": 28.0, "net_income": 21.0, "eps": 150.0, "fiscal_end_date": "2022-12-31"}),
+        ("2023", "FY", {"revenue": 450.0, "operating_income": 50.0, "ordinary_income": 45.0, "net_income": 35.0, "eps": 200.0, "fiscal_end_date": "2023-03-31"}),
         # 2024年度
-        ("2024", "Q1", {"revenue": 120.0, "operating_income": 14.0, "ordinary_income": 12.0, "net_income": 9.0, "eps": 60.0}),
-        ("2024", "Q2", {"revenue": 240.0, "operating_income": 28.0, "ordinary_income": 24.0, "net_income": 18.0, "eps": 120.0}),
-        ("2024", "FY", {"revenue": 530.0, "operating_income": 60.0, "ordinary_income": 55.0, "net_income": 42.0, "eps": 250.0}),
+        ("2024", "Q1", {"revenue": 120.0, "operating_income": 14.0, "ordinary_income": 12.0, "net_income": 9.0, "eps": 60.0, "fiscal_end_date": "2023-06-30"}),
+        ("2024", "Q2", {"revenue": 240.0, "operating_income": 28.0, "ordinary_income": 24.0, "net_income": 18.0, "eps": 120.0, "fiscal_end_date": "2023-09-30"}),
+        ("2024", "FY", {"revenue": 530.0, "operating_income": 60.0, "ordinary_income": 55.0, "net_income": 42.0, "eps": 250.0, "fiscal_end_date": "2024-03-31"}),
     ]
     for year, quarter, vals in data:
         insert_financial(ticker, year, quarter, **vals, source="TEST")
@@ -84,17 +84,20 @@ class TestCumulativeLatestQuarter:
                 ticker, year, "Q2",
                 revenue=float(int(year) * 10), operating_income=10.0,
                 net_income=5.0, eps=1.0, source="TEST",
+                fiscal_end_date=f"{int(year)-1}-09-30",
             )
             insert_financial(
                 ticker, year, "FY",
                 revenue=float(int(year) * 20), operating_income=20.0,
                 net_income=10.0, eps=2.0, source="TEST",
+                fiscal_end_date=f"{year}-03-31",
             )
         # Q2を最新にするため2025 Q2を追加
         insert_financial(
             ticker, "2025", "Q2",
             revenue=25000.0, operating_income=100.0,
             net_income=50.0, eps=10.0, source="TEST",
+            fiscal_end_date="2024-09-30",
         )
         result = get_financial_history(ticker)
         assert result["cumulative_title"] == "2Q累計"
@@ -110,6 +113,7 @@ class TestCumulativeLatestQuarter:
                 ticker, str(year), "FY",
                 revenue=float(year), operating_income=10.0,
                 net_income=5.0, eps=1.0, source="TEST",
+                fiscal_end_date=f"{year}-03-31",
             )
         result = get_financial_history(ticker)
         assert len(result["cumulative"]) == 3

@@ -88,7 +88,7 @@ stock_agent/
 | companies | 銘柄マスタ | ticker_code |
 | daily_prices | 日次株価（OHLCV+調整後終値） | id, UNIQUE(ticker_code, trade_date) |
 | stock_splits | 株式分割情報 | id, UNIQUE(ticker_code, split_date) |
-| financials | 決算データ（announcement_time追加） | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter) |
+| financials | 決算データ（fiscal_end_date必須化） | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date) |
 | announcements | 適時開示（決算/業績修正/配当） | id, UNIQUE(ticker_code, announcement_date, type, fiscal_year, fiscal_quarter) |
 | management_forecasts | 業績予想 | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter, announced_date) |
 | consensus_estimates | コンセンサス予想（スキーマのみ） | id, UNIQUE(ticker_code, fiscal_year, fiscal_quarter, as_of_date) |

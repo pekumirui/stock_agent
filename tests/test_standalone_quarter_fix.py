@@ -23,7 +23,8 @@ class TestHasPrevQuarterFlag:
         upsert_company("8001", "テスト社A")
         insert_financial("8001", "2024", "Q1",
                          revenue=100.0, operating_income=10.0,
-                         ordinary_income=9.0, net_income=7.0, source="TEST")
+                         ordinary_income=9.0, net_income=7.0, source="TEST",
+                         fiscal_end_date="2023-06-30")
 
         with get_connection() as conn:
             row = conn.execute(
@@ -37,7 +38,8 @@ class TestHasPrevQuarterFlag:
         upsert_company("8002", "テスト社B")
         insert_financial("8002", "2024", "Q2",
                          revenue=200.0, operating_income=20.0,
-                         ordinary_income=18.0, net_income=14.0, source="TEST")
+                         ordinary_income=18.0, net_income=14.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         with get_connection() as conn:
             row = conn.execute(
@@ -53,10 +55,12 @@ class TestHasPrevQuarterFlag:
         upsert_company("8003", "テスト社C")
         insert_financial("8003", "2024", "Q1",
                          revenue=100.0, operating_income=10.0,
-                         ordinary_income=9.0, net_income=7.0, source="TEST")
+                         ordinary_income=9.0, net_income=7.0, source="TEST",
+                         fiscal_end_date="2023-06-30")
         insert_financial("8003", "2024", "Q2",
                          revenue=220.0, operating_income=22.0,
-                         ordinary_income=20.0, net_income=15.0, source="TEST")
+                         ordinary_income=20.0, net_income=15.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         with get_connection() as conn:
             row = conn.execute(
@@ -71,10 +75,12 @@ class TestHasPrevQuarterFlag:
         upsert_company("8004", "テスト社D")
         insert_financial("8004", "2024", "Q1",
                          revenue=100.0, operating_income=10.0,
-                         ordinary_income=9.0, net_income=7.0, source="TEST")
+                         ordinary_income=9.0, net_income=7.0, source="TEST",
+                         fiscal_end_date="2023-06-30")
         insert_financial("8004", "2024", "Q3",
                          revenue=300.0, operating_income=30.0,
-                         ordinary_income=27.0, net_income=21.0, source="TEST")
+                         ordinary_income=27.0, net_income=21.0, source="TEST",
+                         fiscal_end_date="2023-12-31")
 
         with get_connection() as conn:
             rows = conn.execute(
@@ -96,7 +102,8 @@ class TestGetFinancialHistoryWithMissingPrev:
         insert_financial("8010", "2024", "Q2",
                          revenue=500.0, operating_income=50.0,
                          ordinary_income=45.0, net_income=35.0,
-                         eps=100.0, source="TEST")
+                         eps=100.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         result = get_financial_history("8010")
         assert len(result["quarterly"]) == 1
@@ -114,11 +121,13 @@ class TestGetFinancialHistoryWithMissingPrev:
         insert_financial("8011", "2024", "Q1",
                          revenue=100.0, operating_income=10.0,
                          ordinary_income=9.0, net_income=7.0,
-                         eps=50.0, source="TEST")
+                         eps=50.0, source="TEST",
+                         fiscal_end_date="2023-06-30")
         insert_financial("8011", "2024", "Q2",
                          revenue=230.0, operating_income=25.0,
                          ordinary_income=22.0, net_income=17.0,
-                         eps=85.0, source="TEST")
+                         eps=85.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         result = get_financial_history("8011")
         labels = [r["label"] for r in result["quarterly"]]
@@ -136,14 +145,17 @@ class TestGetFinancialHistoryWithMissingPrev:
         # 2023: Q1+Q2あり（正常計算）
         insert_financial("8012", "2023", "Q1",
                          revenue=100.0, operating_income=10.0,
-                         ordinary_income=9.0, net_income=7.0, source="TEST")
+                         ordinary_income=9.0, net_income=7.0, source="TEST",
+                         fiscal_end_date="2022-06-30")
         insert_financial("8012", "2023", "Q2",
                          revenue=210.0, operating_income=21.0,
-                         ordinary_income=19.0, net_income=14.0, source="TEST")
+                         ordinary_income=19.0, net_income=14.0, source="TEST",
+                         fiscal_end_date="2022-09-30")
         # 2024: Q2のみ（Q1なし→「-」表示）
         insert_financial("8012", "2024", "Q2",
                          revenue=250.0, operating_income=25.0,
-                         ordinary_income=23.0, net_income=17.0, source="TEST")
+                         ordinary_income=23.0, net_income=17.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         result = get_financial_history("8012")
         quarterly = {r["label"]: r for r in result["quarterly"]}
@@ -161,14 +173,17 @@ class TestGetFinancialHistoryWithMissingPrev:
         # 2023: Q2のみ（Q1なし）
         insert_financial("8013", "2023", "Q2",
                          revenue=200.0, operating_income=20.0,
-                         ordinary_income=18.0, net_income=14.0, source="TEST")
+                         ordinary_income=18.0, net_income=14.0, source="TEST",
+                         fiscal_end_date="2022-09-30")
         # 2024: Q1+Q2あり
         insert_financial("8013", "2024", "Q1",
                          revenue=120.0, operating_income=12.0,
-                         ordinary_income=11.0, net_income=8.0, source="TEST")
+                         ordinary_income=11.0, net_income=8.0, source="TEST",
+                         fiscal_end_date="2023-06-30")
         insert_financial("8013", "2024", "Q2",
                          revenue=260.0, operating_income=26.0,
-                         ordinary_income=24.0, net_income=18.0, source="TEST")
+                         ordinary_income=24.0, net_income=18.0, source="TEST",
+                         fiscal_end_date="2023-09-30")
 
         result = get_financial_history("8013")
         quarterly = {r["label"]: r for r in result["quarterly"]}
