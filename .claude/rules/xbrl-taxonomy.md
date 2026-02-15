@@ -1,5 +1,5 @@
 ---
-paths: scripts/featch_financials.py,scripts/featch_tdnet.py
+paths: scripts/fetch_financials.py,scripts/fetch_tdnet.py
 ---
 
 # XBRLタクソノミ - 要素名マッピングガイド

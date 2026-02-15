@@ -59,7 +59,22 @@
       "Bash(venv/bin/python3:*)",
       "Bash(gh pr view:*)",
       "Bash(git log:*)",
-      "Bash(gh pr list:*)"
+      "Bash(gh pr list:*)",
+      "Bash(PLAYWRIGHT_BROWSERS_PATH=/home/pekumirui/.cache/ms-playwright npx playwright screenshot:*)",
+      "Bash(PLAYWRIGHT_BROWSERS_PATH=/home/pekumirui/.cache/ms-playwright /home/pekumirui/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome --headless --screenshot=/tmp/viewer-screenshot.png --window-size=1920,1080 --disable-gpu --no-sandbox http://localhost:8000/)",
+      "Bash(find:*)",
+      "Bash(PLAYWRIGHT_BROWSERS_PATH=/home/pekumirui/.cache/ms-playwright npx @playwright/mcp@latest --browser chromium --help:*)",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_take_screenshot",
+      "Bash(sudo apt-get update:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(fc-list:*)",
+      "mcp__playwright__browser_close",
+      "Bash(gh repo view:*)",
+      "Bash(venv/bin/pip list:*)",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_snapshot",
+      "Bash(git reset:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

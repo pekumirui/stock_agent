@@ -29,6 +29,7 @@ logs/*.log
 node_modules/
 package.json
 package-lock.json
+.playwright-mcp/
 
 # OS
 .DS_Store
@@ -61,3 +62,4 @@ venv/
 logs/*
 
 webUI/*
+AI-bot.key.pem

@@ -23,6 +23,7 @@
 
 - システムに`python`コマンドは無い。必ず`venv/bin/python`を使う
 - xbrlpライブラリはpip管理外（`lib/xbrlp/`をsys.path.insertで読み込み）
+- `.env`の読み込み: スクリプト内は`_load_env()`を使用。bashから直接使う場合は`set -a && source .env && set +a`
 
 ## Web機能の起動
 
@@ -36,6 +37,12 @@ cd /home/pekumirui/stock_agent && venv/bin/python -m uvicorn web.app:app --host 
 
 ```bash
 cd /home/pekumirui/stock_agent && venv/bin/python -m pytest
+```
+
+## マイグレーション
+
+```bash
+cd /home/pekumirui/stock_agent && venv/bin/python scripts/migrate.py
 ```
 
 ## セットアップ
