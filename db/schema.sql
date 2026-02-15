@@ -407,7 +407,11 @@ SELECT
     f.gross_profit AS gross_profit_cumulative,
     f.operating_income AS operating_income_cumulative,
     f.ordinary_income AS ordinary_income_cumulative,
-    f.net_income AS net_income_cumulative
+    f.net_income AS net_income_cumulative,
+    CASE f.fiscal_quarter
+        WHEN 'Q1' THEN 1
+        ELSE CASE WHEN prev.id IS NOT NULL THEN 1 ELSE 0 END
+    END AS has_prev_quarter
 FROM financials f
 INNER JOIN companies c ON f.ticker_code = c.ticker_code
 LEFT JOIN financials prev ON (
