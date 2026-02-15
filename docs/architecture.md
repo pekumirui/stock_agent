@@ -103,5 +103,5 @@ stock_agent/
 | v_latest_financials | 最新決算（銘柄情報付き） |
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
-| v_financials_standalone_quarter | 単独四半期算出（累積値から差分計算） |
+| v_financials_standalone_quarter | 単独四半期算出(累積値から差分計算、`has_prev_quarter`フラグで前四半期データ有無を判定) |
 
