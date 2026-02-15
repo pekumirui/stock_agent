@@ -491,6 +491,94 @@ class TestAnnouncementDateProtection:
             assert row['source'] == 'EDINET'
 
 
+class TestAnnouncementDateKeepEarliest:
+    """announcement_dateの古い日付保持テスト（期中レビュー対策）"""
+
+    def test_later_date_does_not_overwrite(self, sample_company):
+        """後から来た新しいannouncement_dateで既存の古い日付が上書きされないこと"""
+        insert_financial('9999', '2024', 'Q3',
+                        fiscal_end_date='2024-12-31',
+                        revenue=1000.0,
+                        announcement_date='2026-02-06',
+                        source='JQuants')
+        insert_financial('9999', '2024', 'Q3',
+                        fiscal_end_date='2024-12-31',
+                        revenue=1000.0,
+                        announcement_date='2026-02-13',
+                        source='JQuants')
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q3'"
+            ).fetchone()
+            assert row['announcement_date'] == '2026-02-06', \
+                "古いannouncement_dateが保持されるべき"
+
+    def test_earlier_date_does_overwrite(self, sample_company):
+        """先に新しい日付が入った後、古い日付で上書きされること"""
+        insert_financial('9999', '2024', 'FY',
+                        fiscal_end_date='2025-03-31',
+                        revenue=1000.0,
+                        announcement_date='2026-02-13',
+                        source='JQuants')
+        insert_financial('9999', '2024', 'FY',
+                        fiscal_end_date='2025-03-31',
+                        revenue=1000.0,
+                        announcement_date='2026-02-06',
+                        source='JQuants')
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='FY'"
+            ).fetchone()
+            assert row['announcement_date'] == '2026-02-06', \
+                "古い日付で上書きされるべき"
+
+    def test_null_does_not_overwrite_existing_date(self, sample_company):
+        """NULLのannouncement_dateが既存の日付を上書きしないこと"""
+        insert_financial('9999', '2024', 'Q1',
+                        fiscal_end_date='2024-06-30',
+                        revenue=1000.0,
+                        announcement_date='2026-02-06',
+                        source='TDnet')
+        insert_financial('9999', '2024', 'Q1',
+                        fiscal_end_date='2024-06-30',
+                        revenue=1000.0,
+                        announcement_date=None,
+                        source='EDINET')
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q1'"
+            ).fetchone()
+            assert row['announcement_date'] == '2026-02-06', \
+                "NULLで既存日付が消えてはいけない"
+
+    def test_existing_null_gets_new_date(self, sample_company):
+        """既存がNULLの場合、新しい日付で設定されること"""
+        insert_financial('9999', '2024', 'Q2',
+                        fiscal_end_date='2024-09-30',
+                        revenue=1000.0,
+                        announcement_date=None,
+                        source='EDINET')
+        insert_financial('9999', '2024', 'Q2',
+                        fiscal_end_date='2024-09-30',
+                        revenue=1000.0,
+                        announcement_date='2026-02-06',
+                        source='EDINET')
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_date FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2024' AND fiscal_quarter='Q2'"
+            ).fetchone()
+            assert row['announcement_date'] == '2026-02-06', \
+                "NULLから日付が設定されるべき"
+
+
 class TestFiscalYearChangeHandling:
     """決算期変更時のUNIQUE制約テスト"""
 

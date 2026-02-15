@@ -13,6 +13,7 @@ from fetch_jquants_fins import (
     _detect_quarter,
     _is_target_row,
     _is_consolidated,
+    _select_best_rows,
     _to_million,
     _to_float,
     _format_date,
@@ -222,3 +223,80 @@ class TestMapToFinancial:
             OdP=500_000_000_000,
         ))
         assert result['ordinary_income'] == pytest.approx(500_000.0)
+
+
+class TestSelectBestRows:
+    """_select_best_rows()のテスト"""
+
+    def _make_df(self, rows):
+        """テスト用DataFrameを生成"""
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    def test_min_disc_date_used(self):
+        """同一銘柄・期で複数DiscDateがある場合、最古のDiscDateが採用されること"""
+        df = self._make_df([
+            {'Code': '80010', 'DocType': '3QFinancialStatements_Consolidated_IFRS',
+             'CurFYEn': '2026-03-31', 'DiscDate': '2026-02-06', 'DiscNo': '100',
+             'Sales': 10_000_000},
+            {'Code': '80010', 'DocType': '3QFinancialStatements_Consolidated_IFRS',
+             'CurFYEn': '2026-03-31', 'DiscDate': '2026-02-13', 'DiscNo': '200',
+             'Sales': 10_000_000},
+        ])
+        result = _select_best_rows(df)
+        assert len(result) == 1
+        row = result.iloc[0]
+        # 最新DiscNo（200）の行が選ばれるが、DiscDateは最古（2026-02-06）に差し替え
+        assert str(row['DiscDate']) == '2026-02-06'
+        assert row['DiscNo'] == '200'
+
+    def test_correction_uses_latest_values(self):
+        """訂正報告がある場合、最新DiscNo（最新値）が採用されること"""
+        df = self._make_df([
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_Consolidated_IFRS',
+             'CurFYEn': '2025-03-31', 'DiscDate': '2025-05-08', 'DiscNo': '100',
+             'Sales': 48_000_000_000_000},
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_Consolidated_IFRS',
+             'CurFYEn': '2025-03-31', 'DiscDate': '2025-05-10', 'DiscNo': '200',
+             'Sales': 49_000_000_000_000},  # 訂正で値が変わった
+        ])
+        result = _select_best_rows(df)
+        assert len(result) == 1
+        row = result.iloc[0]
+        # 最新DiscNo（200）の値を使い、DiscDateは最古
+        assert row['Sales'] == 49_000_000_000_000
+        assert str(row['DiscDate']) == '2025-05-08'
+
+    def test_consolidated_preferred(self):
+        """連結が非連結より優先されること"""
+        df = self._make_df([
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_NonConsolidated_JP',
+             'CurFYEn': '2025-03-31', 'DiscDate': '2025-05-08', 'DiscNo': '100',
+             'Sales': 1_000_000},
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_Consolidated_JP',
+             'CurFYEn': '2025-03-31', 'DiscDate': '2025-05-08', 'DiscNo': '99',
+             'Sales': 10_000_000},
+        ])
+        result = _select_best_rows(df)
+        assert len(result) == 1
+        assert result.iloc[0]['Sales'] == 10_000_000
+
+    def test_single_record_unchanged(self):
+        """単一レコードの場合はDiscDateがそのまま"""
+        df = self._make_df([
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_Consolidated_JP',
+             'CurFYEn': '2025-03-31', 'DiscDate': '2025-05-08', 'DiscNo': '100',
+             'Sales': 1_000_000},
+        ])
+        result = _select_best_rows(df)
+        assert len(result) == 1
+        assert str(result.iloc[0]['DiscDate']) == '2025-05-08'
+
+    def test_no_disc_date_column(self):
+        """DiscDate列がない場合もエラーにならないこと"""
+        df = self._make_df([
+            {'Code': '72030', 'DocType': 'FYFinancialStatements_Consolidated_JP',
+             'CurFYEn': '2025-03-31', 'DiscNo': '100', 'Sales': 1_000_000},
+        ])
+        result = _select_best_rows(df)
+        assert len(result) == 1
