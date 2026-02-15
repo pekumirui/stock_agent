@@ -10,6 +10,7 @@ TDnetから決算短信のXBRLを取得し、決算情報をDBに保存する
     python fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05  # 日付範囲指定
 """
 import argparse
+import calendar
 import re
 import shutil
 import sys
@@ -114,6 +115,61 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
         # else: fiscal_quarter = 'FY' (デフォルト値を使用)
 
     return fiscal_year, fiscal_quarter
+
+
+def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quarter: str) -> Optional[str]:
+    """
+    決算短信タイトルからfiscal_end_dateを推定する（iXBRL解析失敗時のフォールバック）
+
+    タイトルの「YYYY年M月期」パターンから決算期末月を抽出し、
+    fiscal_quarterに応じた期末日を計算。
+
+    計算方法: FY末からの逆算
+    - FY/Q4: 0ヶ月前（FY末そのもの）
+    - Q3: 3ヶ月前
+    - Q2: 6ヶ月前
+    - Q1: 9ヶ月前
+
+    Args:
+        title: 決算短信タイトル（例: "2024年3月期 第1四半期決算短信"）
+        fiscal_year: 決算年度（例: "2024"）
+        fiscal_quarter: 四半期（例: "Q1"）
+
+    Returns:
+        fiscal_end_date（YYYY-MM-DD形式）またはNone
+
+    Examples:
+        >>> detect_fiscal_end_date_from_title("2024年3月期 第1四半期決算短信", "2024", "Q1")
+        "2023-06-30"
+
+        >>> detect_fiscal_end_date_from_title("2024年3月期 通期決算短信", "2024", "FY")
+        "2024-03-31"
+
+        >>> detect_fiscal_end_date_from_title("2024年12月期 通期決算短信", "2024", "FY")
+        "2024-12-31"
+    """
+    normalized = unicodedata.normalize('NFKC', title)
+    normalized = _wareki_to_seireki(normalized)
+
+    m = re.search(r'(\d{4})年(\d{1,2})月期', normalized)
+    if not m:
+        return None
+
+    fy_end_year = int(m.group(1))
+    fy_end_month = int(m.group(2))
+
+    months_before_fy = {'FY': 0, 'Q4': 0, 'Q3': 3, 'Q2': 6, 'Q1': 9}
+    mb = months_before_fy.get(fiscal_quarter)
+    if mb is None:
+        return None
+
+    # FY末月から逆算して各四半期の期末月・年を算出
+    total = fy_end_year * 12 + (fy_end_month - 1) - mb
+    end_year = total // 12
+    end_month = (total % 12) + 1
+
+    last_day = calendar.monthrange(end_year, end_month)[1]
+    return f"{end_year:04d}-{end_month:02d}-{last_day:02d}"
 
 
 # ============================================
@@ -441,6 +497,15 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
             if xbrl_fiscal_year != fiscal_year:
                 print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
                 fiscal_year = xbrl_fiscal_year
+
+        # iXBRL解析でfiscal_end_dateが取れなかった場合、タイトルから推定
+        if not xbrl_fiscal_end:
+            xbrl_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+            if xbrl_fiscal_end:
+                print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+            else:
+                print(f"    [WARN] fiscal_end_dateを特定できません: {ticker_code} {fiscal_year} {fiscal_quarter}")
+                return False  # fiscal_end_date必須のためスキップ
 
         # DBに保存（上書きチェックは insert_financial 内で実施）
         saved = insert_financial(

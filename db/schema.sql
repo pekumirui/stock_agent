@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS financials (
     ticker_code TEXT NOT NULL,              -- 証券コード
     fiscal_year TEXT NOT NULL,              -- 決算年度（例: 2024）
     fiscal_quarter TEXT,                    -- 四半期（Q1/Q2/Q3/Q4/FY）
-    fiscal_end_date TEXT,                   -- 決算期末日
+    fiscal_end_date TEXT NOT NULL,          -- 決算期末日
     announcement_date TEXT,                 -- 決算発表日
     announcement_time TEXT,                 -- 決算発表時刻
 
@@ -91,13 +91,14 @@ CREATE TABLE IF NOT EXISTS financials (
     
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-    UNIQUE(ticker_code, fiscal_year, fiscal_quarter),
+    UNIQUE(ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date),
     FOREIGN KEY (ticker_code) REFERENCES companies(ticker_code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_fin_ticker ON financials(ticker_code);
 CREATE INDEX IF NOT EXISTS idx_fin_year ON financials(fiscal_year);
 CREATE INDEX IF NOT EXISTS idx_fin_announce ON financials(announcement_date);
+CREATE INDEX IF NOT EXISTS idx_fin_end_date ON financials(fiscal_end_date);
 
 -- ============================================
 -- 5. バッチ実行ログテーブル
@@ -190,8 +191,8 @@ SELECT
     END AS net_income_yoy_pct
 FROM financials f
 INNER JOIN companies c ON f.ticker_code = c.ticker_code
-WINDOW w AS (PARTITION BY f.ticker_code, f.fiscal_quarter ORDER BY f.fiscal_year)
-ORDER BY f.ticker_code, f.fiscal_year, f.fiscal_quarter;
+WINDOW w AS (PARTITION BY f.ticker_code, f.fiscal_quarter ORDER BY f.fiscal_end_date)
+ORDER BY f.ticker_code, f.fiscal_end_date, f.fiscal_quarter;
 
 -- ============================================
 -- ビュー: 前四半期比較（QoQ）
@@ -235,15 +236,9 @@ INNER JOIN companies c ON f.ticker_code = c.ticker_code
 WHERE f.fiscal_quarter != 'FY'
 WINDOW w AS (
     PARTITION BY f.ticker_code
-    ORDER BY f.fiscal_year,
-             CASE f.fiscal_quarter
-                WHEN 'Q1' THEN 1
-                WHEN 'Q2' THEN 2
-                WHEN 'Q3' THEN 3
-                WHEN 'Q4' THEN 4
-             END
+    ORDER BY f.fiscal_end_date
 )
-ORDER BY f.ticker_code, f.fiscal_year, f.fiscal_quarter;
+ORDER BY f.ticker_code, f.fiscal_end_date, f.fiscal_quarter;
 
 -- ============================================
 -- ビュー: 最新株価

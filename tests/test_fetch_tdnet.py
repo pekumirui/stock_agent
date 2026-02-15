@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
-from fetch_tdnet import detect_fiscal_period
+from fetch_tdnet import detect_fiscal_period, detect_fiscal_end_date_from_title
 from fetch_financials import _wareki_to_seireki
 from db_utils import get_connection, insert_financial
 
@@ -227,6 +227,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=100.0,
             source='TDnet'
         )
@@ -249,6 +250,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=100.0,
             source='TDnet'
         )
@@ -258,6 +260,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=200.0,
             source='TDnet'
         )
@@ -278,6 +281,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=100.0,
             source='EDINET'
         )
@@ -287,6 +291,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=200.0,
             source='TDnet'
         )
@@ -308,6 +313,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=100.0,
             source='TDnet'
         )
@@ -317,6 +323,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=200.0,
             source='EDINET'
         )
@@ -338,6 +345,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=100.0,
             source='EDINET'
         )
@@ -347,6 +355,7 @@ class TestDataSourcePriority:
             ticker_code='TEST',
             fiscal_year='2024',
             fiscal_quarter='Q1',
+            fiscal_end_date='2023-06-30',
             revenue=200.0,
             source='EDINET'
         )
@@ -359,6 +368,38 @@ class TestDataSourcePriority:
             )
             row = cursor.fetchone()
             assert row['revenue'] == 200.0
+
+
+class TestDetectFiscalEndDateFromTitle:
+    """タイトルからfiscal_end_date推定のテスト"""
+
+    def test_march_fy_q1(self):
+        assert detect_fiscal_end_date_from_title(
+            "2024年3月期 第1四半期決算短信", "2024", "Q1") == "2023-06-30"
+
+    def test_march_fy_fy(self):
+        assert detect_fiscal_end_date_from_title(
+            "2024年3月期 通期決算短信", "2024", "FY") == "2024-03-31"
+
+    def test_december_fy_fy(self):
+        assert detect_fiscal_end_date_from_title(
+            "2024年12月期 通期決算短信", "2024", "FY") == "2024-12-31"
+
+    def test_december_fy_q1(self):
+        assert detect_fiscal_end_date_from_title(
+            "2025年12月期 第1四半期決算短信", "2025", "Q1") == "2025-03-31"
+
+    def test_february_fy_leap_year(self):
+        assert detect_fiscal_end_date_from_title(
+            "2024年2月期 通期決算短信", "2024", "FY") == "2024-02-29"
+
+    def test_fullwidth_digits(self):
+        assert detect_fiscal_end_date_from_title(
+            "２０２６年３月期 通期決算短信", "2026", "FY") == "2026-03-31"
+
+    def test_no_match_returns_none(self):
+        assert detect_fiscal_end_date_from_title(
+            "決算短信", "2024", "FY") is None
 
 
 # TdnetClient のテストは実際のHTTPリクエストが必要なため、

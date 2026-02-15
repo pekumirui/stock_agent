@@ -350,7 +350,7 @@ python3 scripts/validate_schema.py --dry-run
 | companies | 銘柄マスタ |
 | daily_prices | 日次株価 |
 | stock_splits | 株式分割情報 |
-| financials | 決算データ（announcement_time追加） |
+| financials | 決算データ（fiscal_end_date必須化、決算期変更対応） |
 | announcements | 適時開示（決算/業績修正/配当） |
 | management_forecasts | 業績予想 |
 | consensus_estimates | コンセンサス予想（スキーマのみ） |
@@ -364,10 +364,18 @@ python3 scripts/validate_schema.py --dry-run
 |--------|------|
 | v_latest_prices | 各銘柄の最新株価（銘柄情報付き） |
 | v_latest_financials | 各銘柄の最新決算（銘柄情報付き） |
-| v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
-| v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
+| v_financials_yoy | 前年同期比較（LAGウィンドウ関数、`fiscal_end_date`でソート） |
+| v_financials_qoq | 前四半期比較（LAGウィンドウ関数、`fiscal_end_date`でソート） |
 | v_financials_standalone_quarter | 単独四半期算出(累積値から差分計算、`has_prev_quarter`フラグで前四半期データ有無を判定) |
 | v_missing_financials | 決算データ欠損フィールド確認 |
+
+### 決算期変更対応
+
+**UNIQUE制約**: `financials`テーブルは`(ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date)`の4カラムで一意性を保証します。これにより、決算期変更銘柄（例: 175A, 4331, 4891, 6630）で同一年度・同一四半期に複数の決算期末日が存在する場合も、重複なく登録できます。
+
+**データソース優先度**: `insert_financial()`関数は、優先度（EDINET: 3 > TDnet/JQuants: 2 > yfinance: 1）に基づき、既存データが高優先度の場合は上書きをスキップします。決算期変更時は、最新の`fiscal_end_date`を持つレコードが優先されます。
+
+**YoY/QoQ比較**: `v_financials_yoy`および`v_financials_qoq`ビューは、`fiscal_end_date`でソートすることで、決算期変更前後のデータを正確に比較します。
 
 ## SQLiteでの確認
 

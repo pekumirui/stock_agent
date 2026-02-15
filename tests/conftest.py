@@ -106,6 +106,7 @@ def sample_financials(sample_company):
                 "operating_income": 10.0,
                 "net_income": 7.0,
                 "eps": 50.0,
+                "fiscal_end_date": "2022-06-30",
             },
         ),
         (
@@ -116,6 +117,7 @@ def sample_financials(sample_company):
                 "operating_income": 12.0,
                 "net_income": 8.0,
                 "eps": 55.0,
+                "fiscal_end_date": "2022-09-30",
             },
         ),
     ]

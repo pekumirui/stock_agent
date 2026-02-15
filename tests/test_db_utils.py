@@ -162,6 +162,7 @@ class TestInsertFinancialWithOutOfScopeTicker:
             fiscal_year='2024',
             fiscal_quarter='Q1',
             revenue=100.0,
+            fiscal_end_date='2023-06-30',
             source='TDnet'
         )
         assert result is False
@@ -181,6 +182,7 @@ class TestInsertFinancialWithOutOfScopeTicker:
             fiscal_year='2024',
             fiscal_quarter='Q1',
             revenue=100.0,
+            fiscal_end_date='2023-06-30',
             source='TDnet'
         )
         assert result is True
@@ -205,6 +207,7 @@ class TestInsertFinancialCoalesce:
             ticker_code='9999',
             fiscal_year='2024',
             fiscal_quarter='FY',
+            fiscal_end_date='2024-03-31',
             revenue=1000.0,
             gross_profit=400.0,
             operating_income=200.0,
@@ -219,6 +222,7 @@ class TestInsertFinancialCoalesce:
             ticker_code='9999',
             fiscal_year='2024',
             fiscal_quarter='FY',
+            fiscal_end_date='2024-03-31',
             revenue=1050.0,       # 訂正で変更
             gross_profit=None,    # 訂正版にはない
             operating_income=None,
@@ -246,6 +250,7 @@ class TestInsertFinancialCoalesce:
             ticker_code='9999',
             fiscal_year='2024',
             fiscal_quarter='Q2',
+            fiscal_end_date='2023-09-30',
             revenue=500.0,
             gross_profit=200.0,
             operating_income=100.0,
@@ -260,6 +265,7 @@ class TestInsertFinancialCoalesce:
             ticker_code='9999',
             fiscal_year='2024',
             fiscal_quarter='Q2',
+            fiscal_end_date='2023-09-30',
             source='TDnet',
         )
 
@@ -331,8 +337,8 @@ class TestSourcePriority:
 
     def test_yfinance_skips_when_edinet_exists(self, sample_company):
         """yfinanceデータは既存EDINETデータを上書きしない"""
-        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='EDINET')
-        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=1000.0, source='EDINET')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=900.0, source='yfinance')
         assert result is False
 
         with get_connection() as conn:
@@ -344,8 +350,8 @@ class TestSourcePriority:
 
     def test_yfinance_skips_when_tdnet_exists(self, sample_company):
         """yfinanceデータは既存TDnetデータを上書きしない"""
-        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='TDnet')
-        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=1000.0, source='TDnet')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=900.0, source='yfinance')
         assert result is False
 
         with get_connection() as conn:
@@ -356,7 +362,7 @@ class TestSourcePriority:
 
     def test_yfinance_inserts_new_data(self, sample_company):
         """yfinanceデータは新規レコードとして挿入できる"""
-        result = insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=900.0, source='yfinance')
         assert result is True
 
         with get_connection() as conn:
@@ -368,8 +374,8 @@ class TestSourcePriority:
 
     def test_tdnet_overwrites_yfinance(self, sample_company):
         """TDnetデータはyfinanceデータを上書きする"""
-        insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
-        result = insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='TDnet')
+        insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=900.0, source='yfinance')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=1000.0, source='TDnet')
         assert result is True
 
         with get_connection() as conn:
@@ -381,8 +387,8 @@ class TestSourcePriority:
 
     def test_edinet_overwrites_yfinance(self, sample_company):
         """EDINETデータはyfinanceデータを上書きする"""
-        insert_financial('9999', '2024', 'Q1', revenue=900.0, source='yfinance')
-        result = insert_financial('9999', '2024', 'Q1', revenue=1100.0, source='EDINET')
+        insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=900.0, source='yfinance')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=1100.0, source='EDINET')
         assert result is True
 
         with get_connection() as conn:
@@ -394,8 +400,8 @@ class TestSourcePriority:
 
     def test_tdnet_still_skips_edinet(self, sample_company):
         """TDnetデータは既存EDINETデータを上書きしない（既存動作維持）"""
-        insert_financial('9999', '2024', 'Q1', revenue=1000.0, source='EDINET')
-        result = insert_financial('9999', '2024', 'Q1', revenue=950.0, source='TDnet')
+        insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=1000.0, source='EDINET')
+        result = insert_financial('9999', '2024', 'Q1', fiscal_end_date='2023-06-30', revenue=950.0, source='TDnet')
         assert result is False
 
         with get_connection() as conn:
@@ -413,12 +419,14 @@ class TestAnnouncementDateProtection:
         """EDINET上書き時にTDnetのannouncement_dateが保持されること"""
         insert_financial(
             '9999', '2024', 'Q1',
+            fiscal_end_date='2023-06-30',
             revenue=1000.0,
             announcement_date='2024-02-10',
             source='TDnet',
         )
         insert_financial(
             '9999', '2024', 'Q1',
+            fiscal_end_date='2023-06-30',
             revenue=1000.0,
             gross_profit=400.0,
             announcement_date=None,
@@ -441,6 +449,7 @@ class TestAnnouncementDateProtection:
         """EDINET先行挿入時はannouncement_dateがNULLになること"""
         insert_financial(
             '9999', '2024', 'Q2',
+            fiscal_end_date='2023-09-30',
             revenue=500.0,
             announcement_date=None,
             source='EDINET',
@@ -458,12 +467,14 @@ class TestAnnouncementDateProtection:
         """EDINET先行後にTDnetがスキップされた場合、announcement_dateはNULLのまま"""
         insert_financial(
             '9999', '2024', 'Q3',
+            fiscal_end_date='2023-12-31',
             revenue=800.0,
             announcement_date=None,
             source='EDINET',
         )
         result = insert_financial(
             '9999', '2024', 'Q3',
+            fiscal_end_date='2023-12-31',
             revenue=800.0,
             announcement_date='2024-01-30',
             source='TDnet',
@@ -478,3 +489,40 @@ class TestAnnouncementDateProtection:
             assert row['announcement_date'] is None, \
                 "TDnetがスキップされたためannouncement_dateはNULLのまま"
             assert row['source'] == 'EDINET'
+
+
+class TestFiscalYearChangeHandling:
+    """決算期変更時のUNIQUE制約テスト"""
+
+    def test_different_fiscal_end_date_creates_separate_rows(self, sample_company):
+        """同一(ticker, year, quarter)でもfiscal_end_dateが異なれば別行"""
+        insert_financial('9999', '2025', 'FY',
+                        revenue=1000.0, source='TDnet',
+                        fiscal_end_date='2025-12-31',
+                        announcement_date='2026-02-13')
+        insert_financial('9999', '2025', 'FY',
+                        revenue=500.0, source='EDINET',
+                        fiscal_end_date='2024-12-31')
+
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) as cnt FROM financials "
+                "WHERE ticker_code='9999' AND fiscal_year='2025' AND fiscal_quarter='FY'"
+            )
+            assert cursor.fetchone()['cnt'] == 2
+
+    def test_same_fiscal_end_date_applies_priority(self, sample_company):
+        """同一fiscal_end_dateでは優先度ルールが適用"""
+        insert_financial('9999', '2025', 'Q1',
+                        revenue=1000.0, source='TDnet',
+                        fiscal_end_date='2025-06-30')
+        result = insert_financial('9999', '2025', 'Q1',
+                        revenue=900.0, source='yfinance',
+                        fiscal_end_date='2025-06-30')
+        assert result is False
+
+    def test_fiscal_end_date_required(self, sample_company):
+        """fiscal_end_date未指定でFalse"""
+        result = insert_financial('9999', '2025', 'Q1',
+                        revenue=100.0, source='TDnet')
+        assert result is False

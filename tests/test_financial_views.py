@@ -23,22 +23,22 @@ def setup_test_data(test_db):
     test_data = [
         # 2023年度
         ('9999', '2023', 'Q1', {'revenue': 100.0, 'operating_income': 10.0, 'net_income': 7.0, 'eps': 50.0,
-                                 'gross_profit': 30.0, 'ordinary_income': 9.0}),
+                                 'gross_profit': 30.0, 'ordinary_income': 9.0, 'fiscal_end_date': '2022-06-30'}),
         ('9999', '2023', 'Q2', {'revenue': 110.0, 'operating_income': 12.0, 'net_income': 8.0, 'eps': 55.0,
-                                 'gross_profit': 33.0, 'ordinary_income': 11.0}),
+                                 'gross_profit': 33.0, 'ordinary_income': 11.0, 'fiscal_end_date': '2022-09-30'}),
         ('9999', '2023', 'Q3', {'revenue': 120.0, 'operating_income': 15.0, 'net_income': 10.0, 'eps': 60.0,
-                                 'gross_profit': 36.0, 'ordinary_income': 13.0}),
+                                 'gross_profit': 36.0, 'ordinary_income': 13.0, 'fiscal_end_date': '2022-12-31'}),
         ('9999', '2023', 'FY', {'revenue': 450.0, 'operating_income': 50.0, 'net_income': 35.0, 'eps': 200.0,
-                                 'gross_profit': 135.0, 'ordinary_income': 45.0}),
+                                 'gross_profit': 135.0, 'ordinary_income': 45.0, 'fiscal_end_date': '2023-03-31'}),
         # 2024年度
         ('9999', '2024', 'Q1', {'revenue': 120.0, 'operating_income': 14.0, 'net_income': 9.0, 'eps': 60.0,
-                                 'gross_profit': 36.0, 'ordinary_income': 12.0}),
+                                 'gross_profit': 36.0, 'ordinary_income': 12.0, 'fiscal_end_date': '2023-06-30'}),
         ('9999', '2024', 'Q2', {'revenue': 130.0, 'operating_income': 16.0, 'net_income': 11.0, 'eps': 70.0,
-                                 'gross_profit': 39.0, 'ordinary_income': 14.0}),
+                                 'gross_profit': 39.0, 'ordinary_income': 14.0, 'fiscal_end_date': '2023-09-30'}),
         ('9999', '2024', 'Q3', {'revenue': 140.0, 'operating_income': 18.0, 'net_income': 12.0, 'eps': 75.0,
-                                 'gross_profit': 42.0, 'ordinary_income': 16.0}),
+                                 'gross_profit': 42.0, 'ordinary_income': 16.0, 'fiscal_end_date': '2023-12-31'}),
         ('9999', '2024', 'FY', {'revenue': 530.0, 'operating_income': 60.0, 'net_income': 42.0, 'eps': 250.0,
-                                 'gross_profit': 159.0, 'ordinary_income': 55.0}),
+                                 'gross_profit': 159.0, 'ordinary_income': 55.0, 'fiscal_end_date': '2024-03-31'}),
     ]
 
     for ticker, year, quarter, data in test_data:

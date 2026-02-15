@@ -118,6 +118,7 @@ def get_viewer_data(
                            ordinary_income, ordinary_income_prev_year
                     FROM v_financials_yoy
                     WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                    ORDER BY fiscal_end_date DESC LIMIT 1
                 """,
                     [ticker, fy, fq],
                 )
@@ -157,6 +158,7 @@ def get_viewer_data(
                         FROM v_financials_standalone_quarter
                         WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
                               AND has_prev_quarter = 1
+                        ORDER BY announcement_date DESC LIMIT 1
                     """,
                         [ticker, fy, fq],
                     )
@@ -170,6 +172,7 @@ def get_viewer_data(
                         FROM v_financials_standalone_quarter
                         WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
                               AND has_prev_quarter = 1
+                        ORDER BY announcement_date DESC LIMIT 1
                     """,
                         [ticker, prev_fy_q, prev_fq],
                     )
@@ -280,6 +283,7 @@ def get_detail_data(ticker_code: str, target_date: str) -> dict:
             SELECT revenue, gross_profit, operating_income, ordinary_income, net_income
             FROM financials
             WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+            ORDER BY fiscal_end_date DESC LIMIT 1
         """,
             [ticker_code, fy, fq],
         )
@@ -292,6 +296,7 @@ def get_detail_data(ticker_code: str, target_date: str) -> dict:
                 SELECT revenue, gross_profit, operating_income, ordinary_income, net_income
                 FROM financials
                 WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                ORDER BY fiscal_end_date DESC LIMIT 1
             """,
                 [ticker_code, prev_fy, fq],
             )
@@ -650,7 +655,7 @@ def get_financial_history(ticker_code: str) -> dict:
                 FROM financials
                 WHERE ticker_code = ? AND fiscal_year = ?
                       AND fiscal_quarter = 'FY'
-                LIMIT 1
+                ORDER BY fiscal_end_date DESC LIMIT 1
                 """,
                 [ticker_code, str(int(fc_fy) - 1)],
             )
@@ -664,7 +669,7 @@ def get_financial_history(ticker_code: str) -> dict:
                     FROM financials
                     WHERE ticker_code = ? AND fiscal_year = ?
                           AND fiscal_quarter = 'Q4'
-                    LIMIT 1
+                    ORDER BY fiscal_end_date DESC LIMIT 1
                     """,
                     [ticker_code, str(int(fc_fy) - 1)],
                 )

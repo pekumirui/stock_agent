@@ -254,6 +254,11 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
     if not ticker_exists(ticker_code):
         return False
 
+    fiscal_end_date = kwargs.get('fiscal_end_date')
+    if not fiscal_end_date:
+        print(f"    [ERROR] fiscal_end_date is required: {ticker_code} {fiscal_year} {fiscal_quarter}")
+        return False
+
     source = kwargs.get('source')
 
     try:
@@ -262,7 +267,8 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             cursor = conn.execute("""
                 SELECT source FROM financials
                 WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-            """, (ticker_code, fiscal_year, fiscal_quarter))
+                  AND fiscal_end_date = ?
+            """, (ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date))
             existing = cursor.fetchone()
 
             # スキップ判定: 低優先度ソースが高優先度データを上書きしない
@@ -282,8 +288,7 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
              revenue, gross_profit, operating_income, ordinary_income, net_income, eps,
              currency, unit, source, edinet_doc_id, pdf_path)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter) DO UPDATE SET
-                fiscal_end_date = excluded.fiscal_end_date,
+            ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter, fiscal_end_date) DO UPDATE SET
                 announcement_date = COALESCE(excluded.announcement_date, announcement_date),
                 announcement_time = COALESCE(excluded.announcement_time, announcement_time),
                 revenue = COALESCE(excluded.revenue, revenue),
