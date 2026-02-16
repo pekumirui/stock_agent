@@ -458,14 +458,29 @@ def _is_current_period_context(context_ref: str) -> bool:
 def _extract_fiscal_end_date_from_xbrl(ixbrl_paths: list) -> Optional[str]:
     """iXBRLのContext要素から決算期末日を抽出する。
 
-    CurrentYearInstant(期末時点)のinstantを優先的に取得。
-    見つからない場合はCurrentYearDurationのendDateにフォールバック。
+    四半期報告書ではCurrentQuarterInstant/InterimInstantを、
+    有価証券報告書ではCurrentYearInstantを使用する。
+    1パスで全候補を収集し、優先度順に返却する。
+
+    優先順位:
+      1. CurrentQuarterInstant (四半期報告書)
+      2. InterimInstant (半期報告書)
+      3. CurrentYearInstant (有価証券報告書)
+      4. CurrentYTDDuration endDate (フォールバック)
+      5. InterimDuration endDate (フォールバック)
+      6. CurrentYearDuration endDate (フォールバック)
 
     Returns:
-        決算期末日 (例: "2026-03-31") or None
+        決算期末日 (例: "2024-09-30") or None
     """
+    # 検索キー（優先度順）
+    instant_keys = ["CurrentQuarter", "Interim", "CurrentYear"]
+    duration_keys = ["CurrentYTD", "Interim", "CurrentYear"]
+
     for ixbrl_path in ixbrl_paths:
         xbrli_ns = None
+        instant_candidates = {}   # key_prefix -> date
+        duration_candidates = {}  # key_prefix -> date
 
         for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
             if event == "start-ns":
@@ -473,40 +488,42 @@ def _extract_fiscal_end_date_from_xbrl(ixbrl_paths: list) -> Optional[str]:
                 if uri == "http://www.xbrl.org/2003/instance":
                     xbrli_ns = uri
             elif event == "end" and xbrli_ns:
-                context_tag = f"{{{xbrli_ns}}}context"
-                if elem.tag == context_tag:
-                    ctx_id = elem.get("id", "")
-                    # CurrentYearInstant → 期末時点（最も正確）
-                    if "CurrentYear" in ctx_id and "Instant" in ctx_id:
-                        period = elem.find(f"{{{xbrli_ns}}}period")
-                        if period is not None:
-                            # scenario付き（ディメンション指定）は除外
-                            scenario = elem.find(f"{{{xbrli_ns}}}scenario")
-                            if scenario is not None:
-                                continue
-                            instant = period.find(f"{{{xbrli_ns}}}instant")
-                            if instant is not None and instant.text:
-                                return instant.text
+                if elem.tag != f"{{{xbrli_ns}}}context":
+                    continue
+                ctx_id = elem.get("id", "")
+                # scenario付き（ディメンション指定）は除外
+                if elem.find(f"{{{xbrli_ns}}}scenario") is not None:
+                    continue
+                period = elem.find(f"{{{xbrli_ns}}}period")
+                if period is None:
+                    continue
 
-        # Instant未発見時のフォールバック: CurrentYearDurationのendDate
-        for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
-            if event == "start-ns":
-                prefix, uri = elem
-                if uri == "http://www.xbrl.org/2003/instance":
-                    xbrli_ns = uri
-            elif event == "end" and xbrli_ns:
-                context_tag = f"{{{xbrli_ns}}}context"
-                if elem.tag == context_tag:
-                    ctx_id = elem.get("id", "")
-                    if "CurrentYear" in ctx_id and "Duration" in ctx_id:
-                        scenario = elem.find(f"{{{xbrli_ns}}}scenario")
-                        if scenario is not None:
-                            continue
-                        period = elem.find(f"{{{xbrli_ns}}}period")
-                        if period is not None:
-                            end_date = period.find(f"{{{xbrli_ns}}}endDate")
-                            if end_date is not None and end_date.text:
-                                return end_date.text
+                # Instant候補を収集
+                if "Instant" in ctx_id:
+                    instant = period.find(f"{{{xbrli_ns}}}instant")
+                    if instant is not None and instant.text:
+                        for key in instant_keys:
+                            if key in ctx_id and key not in instant_candidates:
+                                instant_candidates[key] = instant.text
+                                break
+
+                # Duration候補を収集
+                elif "Duration" in ctx_id:
+                    end_date = period.find(f"{{{xbrli_ns}}}endDate")
+                    if end_date is not None and end_date.text:
+                        for key in duration_keys:
+                            if key in ctx_id and key not in duration_candidates:
+                                duration_candidates[key] = end_date.text
+                                break
+
+        # 優先度順にInstantから返却
+        for key in instant_keys:
+            if key in instant_candidates:
+                return instant_candidates[key]
+        # Durationフォールバック
+        for key in duration_keys:
+            if key in duration_candidates:
+                return duration_candidates[key]
 
     return None
 
