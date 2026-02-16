@@ -69,7 +69,8 @@ stock_agent/
 │   └── test_migrations.py           # マイグレーションのテスト
 ├── data/                            # データキャッシュ（gitignore）
 │   ├── xbrl_cache/                  # XBRLリモートファイルキャッシュ
-│   ├── tdnet_cache/                 # TDnet HTMLキャッシュ
+│   ├── edinet_cache/                # EDINET XBRL ZIPキャッシュ
+│   ├── tdnet_xbrl_cache/            # TDnet XBRL ZIPキャッシュ
 │   └── csv/                         # CSV出力用
 ├── docs/
 │   ├── architecture.md              # アーキテクチャ（本ファイル）

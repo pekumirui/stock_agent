@@ -15,7 +15,7 @@
 - `db/` - SQLiteデータベース（`stock_agent.db`）・スキーマ・マイグレーション
 - `tests/` - テストコード
 - `logs/` - バッチ実行ログ
-- `data/` - データキャッシュ（xbrl_cache, tdnet_cache, csv）
+- `data/` - データキャッシュ（xbrl_cache, edinet_cache, tdnet_xbrl_cache, csv）
 - `infra/` - cron設定・ログクリーンアップ
 - `.env` - 環境変数（EDINET_API_KEY等）
 
