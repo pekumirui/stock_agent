@@ -226,7 +226,7 @@ XBRL_TAGS_LEGACY = {
 # jppfs名前空間パターン（日本基準）
 JPPFS_NAMESPACE_PATTERNS = [
     'jppfs_cor',
-    'jpcrp_cor',  # 企業内容等開示タクソノミ（EPSなどの開示項目）
+    'jpcrp',  # 企業内容等開示タクソノミ + 会社固有拡張タクソノミ（jpcrp_cor / jpcrp040300-ssr_E02144-000等）
     'http://disclosure.edinet-fsa.go.jp/taxonomy/jppfs',
 ]
 

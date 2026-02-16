@@ -233,5 +233,5 @@ US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有�
 | US-GAAP企業（半期報） | gross_profit, operating_income | サマリーに要素なし、P/L名前空間未タグ付け |
 | IT/サービス企業 | gross_profit | 販管費一括表示P/L（売上原価の概念なし） |
 | 広告代理店等 | revenue | 純額表示（2021年収益認識基準適用後） |
-| 一部IFRS企業（半期報） | gross_profit | IFRS P/Lで Revenue→Operating Profit の簡略フォーマット |
+| IFRS企業（四半期/半期報） | gross_profit | IFRS P/Lに売上総利益の概念なし（有報の日本基準参考P/Lにのみ存在） |
 | 商社等(IFRS) | operating_income | IFRSでは営業利益の開示が任意 |
