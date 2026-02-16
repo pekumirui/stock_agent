@@ -608,3 +608,86 @@ class TestExtractFiscalEndDateFromXbrl:
         result = _extract_fiscal_end_date_from_xbrl([p])
         assert result == "2025-12-31"
         assert result[:4] == "2025"  # fiscal_year導出の確認
+
+    def test_current_quarter_instant(self, tmp_path):
+        """四半期報告書のCurrentQuarterInstantから期末日を取得"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentQuarterInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E02144</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2024-09-30</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2024-09-30"
+
+    def test_interim_instant(self, tmp_path):
+        """半期報告書のInterimInstantから期末日を取得"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="InterimInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E02144</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2025-09-30</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2025-09-30"
+
+    def test_current_ytd_duration_fallback(self, tmp_path):
+        """CurrentYTDDurationのendDateにフォールバック"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYTDDuration">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E02144</xbrli:identifier></xbrli:entity>
+  <xbrli:period>
+    <xbrli:startDate>2025-04-01</xbrli:startDate>
+    <xbrli:endDate>2025-09-30</xbrli:endDate>
+  </xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2025-09-30"
+
+    def test_quarter_instant_priority_over_year_instant(self, tmp_path):
+        """CurrentQuarterInstantとCurrentYearInstantが両方ある場合、Quarterが優先"""
+        ixbrl = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:ix="http://www.xbrl.org/2013/inlineXBRL">
+<body>
+<ix:header>
+<ix:resources>
+<xbrli:context id="CurrentYearInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E02144</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2026-03-31</xbrli:instant></xbrli:period>
+</xbrli:context>
+<xbrli:context id="CurrentQuarterInstant">
+  <xbrli:entity><xbrli:identifier scheme="http://info.edinet-fsa.go.jp">E02144</xbrli:identifier></xbrli:entity>
+  <xbrli:period><xbrli:instant>2025-09-30</xbrli:instant></xbrli:period>
+</xbrli:context>
+</ix:resources>
+</ix:header>
+</body>
+</html>'''
+        p = self._write_ixbrl(tmp_path, ixbrl)
+        assert _extract_fiscal_end_date_from_xbrl([p]) == "2025-09-30"
