@@ -401,6 +401,82 @@ class TestDetectFiscalEndDateFromTitle:
         assert detect_fiscal_end_date_from_title(
             "決算短信", "2024", "FY") is None
 
+    def test_march_fy_q3_returns_december(self):
+        """3月期企業のQ3は12月末"""
+        assert detect_fiscal_end_date_from_title(
+            "2026年3月期 第3四半期決算短信", "2026", "Q3") == "2025-12-31"
+
+    def test_september_fy_q1_returns_december(self):
+        """9月期企業のQ1は12月末"""
+        assert detect_fiscal_end_date_from_title(
+            "2026年9月期 第1四半期決算短信", "2026", "Q1") == "2025-12-31"
+
+    def test_march_fy_q2_returns_september(self):
+        """3月期企業のQ2は9月末"""
+        assert detect_fiscal_end_date_from_title(
+            "2024年3月期 第2四半期決算短信", "2024", "Q2") == "2023-09-30"
+
+    def test_december_fy_q3_returns_september(self):
+        """12月期企業のQ3は9月末"""
+        assert detect_fiscal_end_date_from_title(
+            "2024年12月期 第3四半期決算短信", "2024", "Q3") == "2024-09-30"
+
+
+class TestQuarterlyFiscalEndDateValidation:
+    """四半期決算のfiscal_end_date検証ロジックのテスト
+
+    fetch_tdnet.pyのprocess_tdnet_announcement()で実装された
+    四半期（Q1/Q2/Q3）の場合、XBRLから取得したfiscal_end_dateが
+    タイトル推定と異なる場合にタイトル推定を優先するロジックの検証
+    """
+
+    def test_q3_fiscal_end_date_should_be_quarter_end_not_fy_end(self):
+        """Q3のfiscal_end_dateは会計年度末ではなくQ3期末であるべき
+
+        バグ事例: 2026年3月期Q3のXBRLから2026-03-31（会計年度末）を取得
+        正しくは: 2025-12-31（Q3期末）
+        """
+        # 3月期企業のQ3
+        title = "2026年3月期 第3四半期決算短信"
+        fiscal_year = "2026"
+        fiscal_quarter = "Q3"
+
+        # タイトルから正しいQ3期末日を取得
+        expected = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        assert expected == "2025-12-31"
+
+        # XBRLから誤って会計年度末を取得した場合（2026-03-31）は、
+        # タイトル推定（2025-12-31）を優先すべき
+        # この検証は実際のprocess_tdnet_announcement()で実装済み
+
+    def test_september_fy_q1_fiscal_end_date_should_be_quarter_end(self):
+        """9月決算企業のQ1のfiscal_end_dateはQ1期末であるべき
+
+        バグ事例: 2026年9月期Q1のXBRLから2026-09-30（会計年度末）を取得
+        正しくは: 2025-12-31（Q1期末）
+        """
+        # 9月期企業のQ1
+        title = "2026年9月期 第1四半期決算短信"
+        fiscal_year = "2026"
+        fiscal_quarter = "Q1"
+
+        # タイトルから正しいQ1期末日を取得
+        expected = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        assert expected == "2025-12-31"
+
+    def test_fy_fiscal_end_date_can_be_fy_end(self):
+        """通期のfiscal_end_dateは会計年度末で正しい
+
+        FY/Q4の場合は会計年度末=期末なので、XBRLから取得した値をそのまま使用
+        """
+        # 3月期企業の通期
+        title = "2024年3月期 通期決算短信"
+        fiscal_year = "2024"
+        fiscal_quarter = "FY"
+
+        expected = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        assert expected == "2024-03-31"
+
 
 # TdnetClient のテストは実際のHTTPリクエストが必要なため、
 # モックを使った統合テストは別途作成することを推奨

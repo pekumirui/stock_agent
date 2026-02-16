@@ -492,20 +492,36 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
 
         # iXBRL由来のfiscal_end_dateでfiscal_yearを補正
         xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
-        if xbrl_fiscal_end:
-            xbrl_fiscal_year = xbrl_fiscal_end[:4]
-            if xbrl_fiscal_year != fiscal_year:
-                print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
-                fiscal_year = xbrl_fiscal_year
 
-        # iXBRL解析でfiscal_end_dateが取れなかった場合、タイトルから推定
-        if not xbrl_fiscal_end:
-            xbrl_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        # 【NEW】四半期の場合、タイトルから推定した期末日と検証
+        if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
+            title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+
+            if xbrl_fiscal_end and title_fiscal_end and xbrl_fiscal_end != title_fiscal_end:
+                # XBRL期末日とタイトル推定が不一致 → タイトル推定を優先
+                print(f"    [補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → タイトル推定={title_fiscal_end}")
+                xbrl_fiscal_end = title_fiscal_end
+            elif not xbrl_fiscal_end:
+                # XBRL取得失敗 → タイトル推定を使用
+                xbrl_fiscal_end = title_fiscal_end
+                if xbrl_fiscal_end:
+                    print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+        else:
+            # FY/Q4の場合はXBRL優先（会計年度末=期末なので正確）
             if xbrl_fiscal_end:
-                print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+                xbrl_fiscal_year = xbrl_fiscal_end[:4]
+                if xbrl_fiscal_year != fiscal_year:
+                    print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
+                    fiscal_year = xbrl_fiscal_year
             else:
-                print(f"    [WARN] fiscal_end_dateを特定できません: {ticker_code} {fiscal_year} {fiscal_quarter}")
-                return False  # fiscal_end_date必須のためスキップ
+                # フォールバック: タイトルから推定
+                xbrl_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+                if xbrl_fiscal_end:
+                    print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+
+        if not xbrl_fiscal_end:
+            print(f"    [WARN] fiscal_end_dateを特定できません: {ticker_code} {fiscal_year} {fiscal_quarter}")
+            return False  # fiscal_end_date必須のためスキップ
 
         # DBに保存（上書きチェックは insert_financial 内で実施）
         saved = insert_financial(

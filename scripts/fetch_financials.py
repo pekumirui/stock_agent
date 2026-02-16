@@ -857,12 +857,23 @@ def process_document(client: EdinetClient, doc_info: dict,
             return False
         fiscal_year = _detect_fiscal_year(doc_info)
 
+        # iXBRL由来のfiscal_end_dateを取得
+        xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
+
+        # XBRLから取得できた場合はそれを優先、できない場合はperiodEndを使用
+        if xbrl_fiscal_end:
+            fiscal_end_date = xbrl_fiscal_end
+            print(f"    [INFO] fiscal_end_date: XBRL={xbrl_fiscal_end}")
+        else:
+            fiscal_end_date = period_end
+            print(f"    [INFO] fiscal_end_date: periodEnd={period_end}")
+
         # DBに保存
         insert_financial(
             ticker_code=ticker_code,
             fiscal_year=fiscal_year,
             fiscal_quarter=fiscal_quarter,
-            fiscal_end_date=period_end,
+            fiscal_end_date=fiscal_end_date,
             announcement_date=None,  # 有報提出日は決算発表日ではない
             revenue=financials.get('revenue'),
             gross_profit=financials.get('gross_profit'),
