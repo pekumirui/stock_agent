@@ -104,6 +104,9 @@ class TestXbrlFactMapping:
             'BusinessRevenue', 'TotalOperatingRevenue',
             'OrdinaryIncomeBNK',
             'OperatingRevenueINV', 'OperatingRevenueIVT', 'OperatingRevenueCMD',
+            'GrossOperatingRevenue',  # 営業総収入（コンビニ・小売・サービス業）
+            'GrossSales',             # 総売上高（広告代理店等）
+            'RevenueRevOA',           # 収益（博報堂DY等）
         ]
         for variant in industry_variants:
             assert XBRL_FACT_MAPPING[variant] == 'revenue', f"{variant} should map to revenue"
@@ -115,6 +118,8 @@ class TestXbrlFactMapping:
             'OperatingRevenue1SummaryOfBusinessResults',
             'RevenueIFRSSummaryOfBusinessResults',
             'RevenuesUSGAAPSummaryOfBusinessResults',
+            'GrossOperatingRevenueSummaryOfBusinessResults',  # 営業総収入（コンビニ・小売等）
+            'OperatingRevenuesSummaryOfBusinessResults',      # 営業収益（航空業等）
         ]
         for variant in summary_variants:
             assert XBRL_FACT_MAPPING[variant] == 'revenue', f"{variant} should map to revenue"
@@ -129,6 +134,7 @@ class TestXbrlFactMapping:
         assert XBRL_FACT_MAPPING['NetOperatingRevenueSEC'] == 'gross_profit'   # 第一種金融商品取引業
         assert XBRL_FACT_MAPPING['OperatingGrossProfit'] == 'gross_profit'     # 一般商工業（営業総利益）
         assert XBRL_FACT_MAPPING['OperatingGrossProfitWAT'] == 'gross_profit'  # 海運業
+        assert XBRL_FACT_MAPPING['GrossProfitBusiness'] == 'gross_profit'      # 事業利益（航空業等）
 
     def test_ifrs_revenue_variants(self):
         """IFRS売上高バリエーションが正しくマッピングされること"""

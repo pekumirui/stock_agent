@@ -41,6 +41,7 @@ EDINET/TDnetのXBRL財務データパースでは、会計基準・業種ごと�
 | `OrdinaryIncomeINS` | 保険業（経常収益） |
 | `OperatingIncomeINS` | 保険業（営業収益）※名前は紛らわしいが売上相当 |
 | `TotalOperatingRevenue` | 営業収益合計 |
+| `GrossOperatingRevenue` | 営業総収入（コンビニ・小売・サービス業） |
 
 ### IFRS
 | 要素名 | 説明 |
@@ -65,6 +66,12 @@ EDINET/TDnetのXBRL財務データパースでは、会計基準・業種ごと�
 ### 有報 経営指標サマリー (jpcrp_cor)
 P/L本表とは別に、有報の「経営指標等の推移」セクションにも売上高が記載される。
 要素名は `*SummaryOfBusinessResults` サフィックス付き（例: `NetSalesSummaryOfBusinessResults`）。
+
+| 要素名 | 説明 |
+|---|---|
+| `NetSalesSummaryOfBusinessResults` | 売上高 |
+| `GrossOperatingRevenueSummaryOfBusinessResults` | 営業総収入（コンビニ・小売等） |
+| `OperatingRevenuesSummaryOfBusinessResults` | 営業収益（航空業等） |
 
 ### IFRS有報サマリー (jpcrp_cor)
 
@@ -197,6 +204,7 @@ US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有�
 | `NetOperatingRevenueSEC` | 第一種金融商品取引業（純営業収益） |
 | `OperatingGrossProfit` | 一般商工業（営業総利益） |
 | `OperatingGrossProfitWAT` | 海運業（営業総利益） |
+| `GrossProfitBusiness` | 事業利益（航空業等） |
 
 ### IFRS
 | 要素名 | 説明 |
@@ -219,6 +227,7 @@ US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有�
 - IFRSには「経常利益」がない → `ProfitLossBeforeTax`（税引前利益）を `ordinary_income` にマッピング
 - 検索順序: `XBRL_FACT_MAPPING` → `XBRL_FACT_MAPPING_IFRS`（最初にマッチした値を優先）
 - コンテキスト判定: `CurrentYearDuration` / `InterimPeriodDuration` 等が当期データ、`Prior*` は前期
+- **会社固有拡張タクソノミ**: 企業ごとに独自の要素名（`GrossSales`, `RevenueRevOA` 等）が使われる場合があり、これらもマッピングに追加している。数が増えるため上記テーブルには網羅的に記載していないが、未マッチログから必要に応じて追加する
 
 ## 構造的欠損（修正不要）
 

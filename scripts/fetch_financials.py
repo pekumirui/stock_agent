@@ -86,6 +86,9 @@ XBRL_FACT_MAPPING = {
     'OperatingRevenueINV': 'revenue',                              # 投資業
     'OperatingRevenueIVT': 'revenue',                              # IVT業
     'OperatingRevenueCMD': 'revenue',                              # CMD業
+    'GrossOperatingRevenue': 'revenue',                            # 営業総収入（コンビニ・小売・サービス業）
+    'GrossSales': 'revenue',                                       # 総売上高（広告代理店等）
+    'RevenueRevOA': 'revenue',                                     # 収益（博報堂DY等）
     # 売上高（有価証券報告書 経営指標サマリー - jpcrp_cor）
     'NetSalesSummaryOfBusinessResults': 'revenue',
     'OperatingRevenue1SummaryOfBusinessResults': 'revenue',
@@ -95,6 +98,8 @@ XBRL_FACT_MAPPING = {
     'BusinessRevenueSummaryOfBusinessResults': 'revenue',
     'OrdinaryIncomeBNKSummaryOfBusinessResults': 'revenue',
     'OrdinaryIncomeINSSummaryOfBusinessResults': 'revenue',      # 保険業（有報サマリー）
+    'GrossOperatingRevenueSummaryOfBusinessResults': 'revenue',  # 営業総収入（コンビニ・小売等）
+    'OperatingRevenuesSummaryOfBusinessResults': 'revenue',      # 営業収益（航空業等）
     'RevenueIFRSSummaryOfBusinessResults': 'revenue',            # IFRS企業の有報
     'RevenuesUSGAAPSummaryOfBusinessResults': 'revenue',         # US-GAAP企業の有報
     # 売上総利益
@@ -105,6 +110,7 @@ XBRL_FACT_MAPPING = {
     'NetOperatingRevenueSEC': 'gross_profit',                        # 第一種金融商品取引業（純営業収益）
     'OperatingGrossProfit': 'gross_profit',                          # 一般商工業（営業総利益）
     'OperatingGrossProfitWAT': 'gross_profit',                       # 海運業（営業総利益）
+    'GrossProfitBusiness': 'gross_profit',                             # 事業利益（航空業等）
     # 営業利益
     'OperatingIncome': 'operating_income',
     'OperatingProfit': 'operating_income',
