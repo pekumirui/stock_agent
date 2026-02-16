@@ -20,6 +20,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -53,7 +54,7 @@ TDNET_BASE_URL = "https://www.release.tdnet.info/inbs/"
 TDNET_MAIN_PAGE = "I_main_00.html"
 
 # キャッシュディレクトリ
-TDNET_CACHE_DIR = BASE_DIR / "data" / "tdnet_cache"
+TDNET_XBRL_CACHE_DIR = BASE_DIR / "data" / "tdnet_xbrl_cache"
 
 # レート制限
 TDNET_REQUEST_SLEEP = 0.5  # 秒
@@ -179,14 +180,14 @@ def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quart
 class TdnetClient:
     """TDnet HTMLスクレイピングクライアント"""
 
-    def __init__(self, cache_dir: Path = None):
+    def __init__(self, xbrl_cache_dir: Path = None):
         """
         Args:
-            cache_dir: HTMLキャッシュディレクトリ
+            xbrl_cache_dir: XBRLキャッシュディレクトリ
         """
         self.session = requests.Session()
-        self.cache_dir = cache_dir or TDNET_CACHE_DIR
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.xbrl_cache_dir = xbrl_cache_dir or TDNET_XBRL_CACHE_DIR
+        self.xbrl_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def get_announcements(self, date: str) -> List[Dict[str, Any]]:
         """
@@ -256,7 +257,7 @@ class TdnetClient:
 
     def _fetch_page(self, page_url: str) -> Optional[BeautifulSoup]:
         """
-        TDnetページをフェッチ（キャッシュ利用）
+        TDnetページをフェッチ（キャッシュなし、常にHTTPリクエスト）
 
         Args:
             page_url: ページファイル名（例: I_list_001_20240510.html）
@@ -264,15 +265,6 @@ class TdnetClient:
         Returns:
             BeautifulSoup: 解析済みHTML
         """
-        cache_path = self.cache_dir / page_url
-
-        # キャッシュチェック
-        if cache_path.exists():
-            print(f"  [DEBUG] キャッシュ使用: {page_url}")
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                return BeautifulSoup(f.read(), 'html.parser')
-
-        # HTTPリクエスト
         url = TDNET_BASE_URL + page_url
         print(f"  [DEBUG] HTTPリクエスト開始: {url}")
         try:
@@ -280,12 +272,6 @@ class TdnetClient:
             print(f"  [DEBUG] レスポンス受信: {response.status_code}")
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
-
-            # キャッシュに保存
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                f.write(soup.prettify())
-
-            print(f"  [DEBUG] キャッシュ保存: {cache_path}")
             return soup
 
         except Exception as e:
@@ -408,7 +394,7 @@ class TdnetClient:
 
     def download_xbrl_zip(self, zip_url: str) -> Optional[bytes]:
         """
-        XBRL ZIPファイルをダウンロード
+        XBRL ZIPファイルをダウンロード（キャッシュ対応）
 
         Args:
             zip_url: ZIPファイルのURL
@@ -416,9 +402,36 @@ class TdnetClient:
         Returns:
             ZIPファイルのバイト列（失敗時はNone）
         """
+        # URLからファイル名を抽出
+        parsed_url = urlparse(zip_url)
+        zip_filename = Path(parsed_url.path).name
+
+        # キャッシュチェック
+        cache_path = self.xbrl_cache_dir / zip_filename
+        if cache_path.exists():
+            print(f"    [CACHE] キャッシュ使用: {zip_filename}")
+            try:
+                return cache_path.read_bytes()
+            except Exception as e:
+                print(f"    [WARN] キャッシュ読み込み失敗、再ダウンロードします: {e}")
+                # キャッシュ破損時は削除して再ダウンロード
+                cache_path.unlink(missing_ok=True)
+
+        # HTTPリクエスト
         try:
+            print(f"    [HTTP] ダウンロード開始: {zip_url}")
             response = self.session.get(zip_url, timeout=60)
             response.raise_for_status()
+            time.sleep(TDNET_REQUEST_SLEEP)
+
+            # キャッシュに保存
+            try:
+                cache_path.write_bytes(response.content)
+                print(f"    [CACHE] 保存完了: {zip_filename}")
+            except Exception as e:
+                print(f"    [WARN] キャッシュ保存失敗: {e}")
+                # 保存失敗してもダウンロードは成功
+
             return response.content
         except Exception as e:
             print(f"  [ERROR] ZIPダウンロード失敗 ({zip_url}): {e}")
@@ -662,9 +675,6 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 if announcement_type == 'earnings' and announcement.get('xbrl_zip_url'):
                     if process_tdnet_announcement(client, announcement):
                         processed += 1
-
-                    # レート制限（XBRL DL時のみ）
-                    time.sleep(TDNET_REQUEST_SLEEP)
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
