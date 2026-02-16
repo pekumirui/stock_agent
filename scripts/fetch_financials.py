@@ -191,6 +191,17 @@ XBRL_FACT_MAPPING_IFRS = {
     'NetIncomeUS': 'net_income',                           # TDnet US-GAAP純利益（tse-ed-t）
     # TDnet 営業利益（tse-ed-t名前空間）
     'OperatingIncomeUS': 'operating_income',  # TDnet US-GAAP営業利益（tse-ed-t）
+    # TDnet 売上高 追加（tse-ed-t名前空間）
+    'Revenue2': 'revenue',                    # 新収益認識基準の売上高（博報堂DY等）
+    'OperatingRevenuesSpecific': 'revenue',   # 特殊業種の営業収益
+    'GrossOperatingRevenues': 'revenue',      # 総営業収益
+    'OperatingRevenuesUS': 'revenue',         # US-GAAP営業収益
+    # TDnet 証券業 純営業収益（tse-ed-t名前空間）
+    'NetOperatingRevenuesSE': 'gross_profit', # 証券業の純営業収益
+    # TDnet US-GAAP EPS（tse-ed-t名前空間）
+    'DilutedNetIncomePerShareUS': 'eps',      # US-GAAP希薄化後EPS
+    'DilutedNetIncomePerShare2US': 'eps',     # US-GAAP希薄化後EPS (v2)
+    'BasicNetIncomePerShareUS': 'eps',        # US-GAAP基本的EPS
 }
 
 # レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
