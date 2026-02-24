@@ -98,3 +98,4 @@ Web層（web-layer-builder）と並行で作業する場合:
 - [ ] バッチスクリプトが正常動作すること
 - [ ] 既存テスト全通過（`venv/bin/python -m pytest tests/`）
 - [ ] 新規テストが追加されていること
+- [ ] **Codexレビューを実施し、Critical/High指摘を修正済みであること**（`/codex` スキルを使用）
