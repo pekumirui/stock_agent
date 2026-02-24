@@ -11,7 +11,15 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
-from fetch_tdnet import detect_fiscal_period, detect_fiscal_end_date_from_title
+from fetch_tdnet import (
+    detect_fiscal_period,
+    detect_fiscal_end_date_from_title,
+    _normalize_jp_date,
+    _get_ticker_from_namelist,
+    extract_metadata_from_summary,
+    _extract_metadata_from_attachment,
+    _extract_filing_date_from_namelist,
+)
 from fetch_financials import _wareki_to_seireki
 from db_utils import get_connection, insert_financial
 
@@ -476,6 +484,221 @@ class TestQuarterlyFiscalEndDateValidation:
 
         expected = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
         assert expected == "2024-03-31"
+
+
+class TestNormalizeJpDate:
+    """和文日付→ISO変換のテスト"""
+
+    def test_halfwidth(self):
+        assert _normalize_jp_date("2026年2月13日") == "2026-02-13"
+
+    def test_fullwidth(self):
+        assert _normalize_jp_date("２０２６年２月１３日") == "2026-02-13"
+
+    def test_mixed(self):
+        assert _normalize_jp_date("2026年２月13日") == "2026-02-13"
+
+    def test_already_iso(self):
+        assert _normalize_jp_date("2026-02-13") == "2026-02-13"
+
+    def test_none(self):
+        assert _normalize_jp_date(None) is None
+
+    def test_empty(self):
+        assert _normalize_jp_date("") is None
+
+    def test_invalid(self):
+        assert _normalize_jp_date("不明") is None
+
+    def test_single_digit_month_day(self):
+        assert _normalize_jp_date("2026年1月3日") == "2026-01-03"
+
+
+class TestGetTickerFromNamelist:
+    """ZIPファイル名リストからticker抽出のテスト"""
+
+    def test_normal_ticker(self):
+        """通常の数字のみticker"""
+        namelist = ['XBRLData/Summary/tse-qcedjpsm-81520-20260213381520-ixbrl.htm']
+        assert _get_ticker_from_namelist(namelist) == "8152"
+
+    def test_alpha_ticker(self):
+        """アルファベット含むticker（130A0→130A）"""
+        namelist = ['XBRLData/Summary/tse-anedjpsm-130A0-202602123130A0-ixbrl.htm']
+        assert _get_ticker_from_namelist(namelist) == "130A"
+
+    def test_attachment_fallback(self):
+        """Summary無しでもAttachmentから抽出"""
+        namelist = [
+            'XBRLData/Attachment/qualitative.htm',
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
+        ]
+        assert _get_ticker_from_namelist(namelist) == "3909"
+
+    def test_no_match(self):
+        namelist = ['some/random/file.htm']
+        assert _get_ticker_from_namelist(namelist) is None
+
+    def test_empty(self):
+        assert _get_ticker_from_namelist([]) is None
+
+
+class TestExtractMetadataFromSummary:
+    """Summary iXBRLからのメタデータ抽出テスト"""
+
+    def test_quarterly_jp(self):
+        """日本基準Q3のメタデータ抽出"""
+        html = '''
+        <ix:nonnumeric name="tse-ed-t:DocumentName">第３四半期決算短信〔日本基準〕（連結）</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:FilingDate">2026年２月13日</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:FiscalYearEnd">2026-03-31</ix:nonnumeric>
+        <ix:nonfraction name="tse-ed-t:QuarterlyPeriod">3</ix:nonfraction>
+        <ix:nonnumeric name="tse-ed-t:SecuritiesCode">81520</ix:nonnumeric>
+        '''
+        meta = extract_metadata_from_summary(html)
+        assert meta['ticker_code'] == "8152"
+        assert meta['fiscal_year'] == "2026"
+        assert meta['fiscal_quarter'] == "Q3"
+        assert meta['announcement_date'] == "2026-02-13"
+        assert meta['fiscal_year_end'] == "2026-03-31"
+
+    def test_fy_jp(self):
+        """日本基準FYのメタデータ抽出（QuarterlyPeriod無し→FY）"""
+        html = '''
+        <ix:nonnumeric name="tse-ed-t:DocumentName">通期決算短信〔日本基準〕（連結）</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:FilingDate">2026年2月13日</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:FiscalYearEnd">2025-12-31</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:SecuritiesCode">96720</ix:nonnumeric>
+        '''
+        meta = extract_metadata_from_summary(html)
+        assert meta['ticker_code'] == "9672"
+        assert meta['fiscal_year'] == "2025"
+        assert meta['fiscal_quarter'] == "FY"
+
+    def test_4digit_securities_code(self):
+        """4桁SecuritiesCodeの処理"""
+        html = '''
+        <ix:nonnumeric name="tse-ed-t:FiscalYearEnd">2026-03-31</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:SecuritiesCode">7011</ix:nonnumeric>
+        '''
+        meta = extract_metadata_from_summary(html)
+        assert meta['ticker_code'] == "7011"
+
+    def test_q1_detection(self):
+        """Q1の検出"""
+        html = '''
+        <ix:nonnumeric name="tse-ed-t:FiscalYearEnd">2026-03-31</ix:nonnumeric>
+        <ix:nonfraction name="tse-ed-t:QuarterlyPeriod">1</ix:nonfraction>
+        '''
+        meta = extract_metadata_from_summary(html)
+        assert meta['fiscal_quarter'] == "Q1"
+
+    def test_q2_from_document_name(self):
+        """DocumentNameから第2四半期を検出（QuarterlyPeriod無しの場合）"""
+        html = '''
+        <ix:nonnumeric name="tse-ed-t:DocumentName">第2四半期決算短信</ix:nonnumeric>
+        <ix:nonnumeric name="tse-ed-t:FiscalYearEnd">2026-03-31</ix:nonnumeric>
+        '''
+        meta = extract_metadata_from_summary(html)
+        assert meta['fiscal_quarter'] == "Q2"
+
+    def test_empty_html(self):
+        """空HTMLの処理"""
+        meta = extract_metadata_from_summary("")
+        assert meta['ticker_code'] is None
+        assert meta['fiscal_year'] is None
+        assert meta['fiscal_quarter'] == "FY"
+
+
+class TestExtractMetadataFromAttachment:
+    """Attachmentファイル名パターンからのメタデータ抽出テスト"""
+
+    def test_quarterly(self):
+        """四半期レポートの抽出"""
+        namelist = [
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "3909"
+        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
+        assert meta['announcement_date'] == "2026-02-13"
+        assert meta['fiscal_quarter'] is None  # q=四半期だがQ何かは不明
+
+    def test_annual(self):
+        """年次レポートの抽出"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "7856"
+        assert meta['fiscal_quarter'] == "FY"
+        assert meta['fiscal_year'] == "2025"  # FYならfiscal_end_dateの年
+
+    def test_quarterly_fiscal_year_is_none(self):
+        """四半期ではfiscal_yearが不確定のためNone"""
+        namelist = [
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
+
+    def test_semi_annual_fiscal_year_is_none(self):
+        """半期ではfiscal_yearが不確定のためNone"""
+        namelist = [
+            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['fiscal_year'] is None  # 半期ではfiscal_endから推定不可
+
+    def test_alpha_ticker_code(self):
+        """英字含む銘柄コード（130A等）のAttachmentファイル名"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-130A0-2025-12-31-01-2026-02-14-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "130A"
+
+    def test_semi_annual(self):
+        """半期レポートの抽出"""
+        namelist = [
+            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
+        ]
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "9247"
+        assert meta['fiscal_quarter'] == "Q2"
+
+    def test_no_match(self):
+        """パターン不一致"""
+        namelist = ['XBRLData/Attachment/qualitative.htm']
+        meta = _extract_metadata_from_attachment(namelist)
+        assert meta is None
+
+
+class TestExtractFilingDateFromNamelist:
+    """filing_date抽出のテスト"""
+
+    def test_normal(self):
+        namelist = [
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
+        ]
+        assert _extract_filing_date_from_namelist(namelist) == "2026-02-13"
+
+    def test_no_match(self):
+        namelist = ['XBRLData/Summary/tse-qcedjpsm-81520-20260213-ixbrl.htm']
+        assert _extract_filing_date_from_namelist(namelist) is None
+
+    def test_alpha_ticker_code(self):
+        """英字含む銘柄コードでもfiling_dateを抽出できる"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-130A0-2025-12-31-01-2026-02-14-ixbrl.htm'
+        ]
+        assert _extract_filing_date_from_namelist(namelist) == "2026-02-14"
 
 
 # TdnetClient のテストは実際のHTTPリクエストが必要なため、
