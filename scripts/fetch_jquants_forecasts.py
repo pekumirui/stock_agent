@@ -437,7 +437,7 @@ def main():
 
     except Exception as e:
         print(f"\n[ERROR] バッチ失敗: {e}")
-        log_batch_end(log_id, 'error', error_message=str(e))
+        log_batch_end(log_id, 'failed', error_message=str(e))
         sys.exit(1)
 
 
