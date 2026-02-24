@@ -31,7 +31,7 @@
 cd /home/pekumirui/stock_agent && venv/bin/python -m uvicorn web.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-アクセス: http://localhost:8000/viewer
+アクセス: http://localhost:8000/
 
 ## テスト
 
