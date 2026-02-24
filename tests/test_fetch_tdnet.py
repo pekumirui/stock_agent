@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
+from unittest.mock import MagicMock
 from fetch_tdnet import (
     detect_fiscal_period,
     detect_fiscal_end_date_from_title,
@@ -19,6 +20,7 @@ from fetch_tdnet import (
     extract_metadata_from_summary,
     _extract_metadata_from_attachment,
     _extract_filing_date_from_namelist,
+    _pick_ix_value,
 )
 from fetch_financials import _wareki_to_seireki
 from db_utils import get_connection, insert_financial
@@ -610,74 +612,170 @@ class TestExtractMetadataFromSummary:
         assert meta['fiscal_quarter'] == "FY"
 
 
-class TestExtractMetadataFromAttachment:
-    """Attachmentファイル名パターンからのメタデータ抽出テスト"""
+def _make_mock_zf(dei_html: str = '') -> MagicMock:
+    """テスト用のZipFileモックを作成（DEI要素を含むiXBRL HTMLを返す）"""
+    zf = MagicMock()
+    zf.read.return_value = dei_html.encode('utf-8')
+    return zf
 
-    def test_quarterly(self):
-        """四半期レポートの抽出"""
+
+class TestExtractMetadataFromAttachment:
+    """Attachmentファイル名+iXBRL DEI要素からのメタデータ抽出テスト"""
+
+    def test_quarterly_with_dei(self):
+        """四半期レポート: DEIからQ3を正しく取得"""
         namelist = [
             'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
         assert meta['ticker_code'] == "3909"
-        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
+        assert meta['fiscal_quarter'] == "Q3"
+        assert meta['fiscal_year'] == "2026"
         assert meta['announcement_date'] == "2026-02-13"
-        assert meta['fiscal_quarter'] is None  # q=四半期だがQ何かは不明
 
-    def test_annual(self):
-        """年次レポートの抽出"""
+    def test_quarterly_q4_dei(self):
+        """Q4（12月決算企業の第4四半期）をDEIから取得"""
         namelist = [
-            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+            'XBRLData/Attachment/0101010-qcbs01-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q4</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
-        assert meta['ticker_code'] == "7856"
-        assert meta['fiscal_quarter'] == "FY"
-        assert meta['fiscal_year'] == "2025"  # FYならfiscal_end_dateの年
+        assert meta['fiscal_quarter'] == "Q4"
+        assert meta['fiscal_year'] == "2025"
 
-    def test_quarterly_fiscal_year_is_none(self):
-        """四半期ではfiscal_yearが不確定のためNone"""
-        namelist = [
-            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
-        ]
-        meta = _extract_metadata_from_attachment(namelist)
-        assert meta is not None
-        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
-
-    def test_semi_annual_fiscal_year_is_none(self):
-        """半期ではfiscal_yearが不確定のためNone"""
+    def test_semi_annual_hy_dei(self):
+        """半期レポート: DEIのHYをQ2にマッピング"""
         namelist = [
             'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">HY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
-        assert meta['fiscal_year'] is None  # 半期ではfiscal_endから推定不可
+        assert meta['ticker_code'] == "9247"
+        assert meta['fiscal_quarter'] == "Q2"
+        assert meta['fiscal_year'] == "2026"
+
+    def test_annual_with_dei(self):
+        """年次レポート: DEIからFYを取得"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+        ]
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">FY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-10-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "7856"
+        assert meta['fiscal_quarter'] == "FY"
+        assert meta['fiscal_year'] == "2025"
+
+    def test_dei_missing_fallback_annual(self):
+        """DEI欠損時: taxonomy prefix a → FY フォールバック"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+        ]
+        zf = _make_mock_zf('')  # DEI要素なし
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "FY"
+        assert meta['fiscal_year'] == "2025"
+
+    def test_dei_missing_fallback_semi_annual(self):
+        """DEI欠損時: taxonomy prefix s → Q2 フォールバック"""
+        namelist = [
+            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
+        ]
+        zf = _make_mock_zf('')  # DEI要素なし
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "Q2"
 
     def test_alpha_ticker_code(self):
         """英字含む銘柄コード（130A等）のAttachmentファイル名"""
         namelist = [
             'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-130A0-2025-12-31-01-2026-02-14-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">FY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-12-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
         assert meta['ticker_code'] == "130A"
-
-    def test_semi_annual(self):
-        """半期レポートの抽出"""
-        namelist = [
-            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
-        ]
-        meta = _extract_metadata_from_attachment(namelist)
-        assert meta is not None
-        assert meta['ticker_code'] == "9247"
-        assert meta['fiscal_quarter'] == "Q2"
 
     def test_no_match(self):
         """パターン不一致"""
         namelist = ['XBRLData/Attachment/qualitative.htm']
-        meta = _extract_metadata_from_attachment(namelist)
+        zf = _make_mock_zf('')
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is None
+
+    def test_dei_spread_across_files(self):
+        """DEI要素が複数ファイルに分散している場合も集約できること"""
+        namelist = [
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm',
+            'XBRLData/Attachment/0101010-qcbs01-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm',
+        ]
+        # ファイル1: TypeOfCurrentPeriodDEIのみ、ファイル2: CurrentFiscalYearEndDateDEIのみ
+        html_pl = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>'
+        html_bs = '<ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>'
+        zf = MagicMock()
+        zf.read.side_effect = lambda name: {
+            namelist[0]: html_pl.encode('utf-8'),
+            namelist[1]: html_bs.encode('utf-8'),
+        }[name]
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "Q3"
+        assert meta['fiscal_year'] == "2026"
+
+
+class TestPickIxValue:
+    """_pick_ix_value ヘルパーのテスト"""
+
+    def test_normal(self):
+        html = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q3'
+
+    def test_with_nested_tags(self):
+        html = '<ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant"><div>2026-03-31</div></ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:CurrentFiscalYearEndDateDEI') == '2026-03-31'
+
+    def test_not_found(self):
+        html = '<ix:nonNumeric name="other:Tag">value</ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') is None
+
+    def test_empty_value(self):
+        html = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant"></ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') is None
+
+    def test_single_quote(self):
+        """シングルクオートのname属性にも対応"""
+        html = "<ix:nonnumeric name='jpdei_cor:TypeOfCurrentPeriodDEI' contextRef='FilingDateInstant'>Q3</ix:nonnumeric>"
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q3'
+
+    def test_lowercase_tag(self):
+        """小文字タグ名にも対応"""
+        html = '<ix:nonnumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q1</ix:nonnumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q1'
 
 
 class TestExtractFilingDateFromNamelist:
