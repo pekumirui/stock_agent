@@ -240,13 +240,15 @@ def insert_stock_split(ticker_code: str, split_date: str, ratio_from: float, rat
 SOURCE_PRIORITY = {'EDINET': 3, 'TDnet': 2, 'JQuants': 2, 'yfinance': 1}
 
 
-def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **kwargs):
+def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str,
+                     skip_priority_check: bool = False, **kwargs):
     """
     決算データを挿入（データソース優先度を考慮）
 
     上書きルール（優先度: EDINET > TDnet > yfinance）:
     - 低優先度ソースで既に高優先度データが存在する場合はスキップ
     - 同一優先度または高優先度ソースは上書き
+    - skip_priority_check=True の場合は優先度チェックをスキップ
 
     Returns:
         bool: 保存した場合 True、スキップした場合 False
@@ -272,7 +274,7 @@ def insert_financial(ticker_code: str, fiscal_year: str, fiscal_quarter: str, **
             existing = cursor.fetchone()
 
             # スキップ判定: 低優先度ソースが高優先度データを上書きしない
-            if existing:
+            if existing and not skip_priority_check:
                 existing_priority = SOURCE_PRIORITY.get(existing['source'], 0)
                 new_priority = SOURCE_PRIORITY.get(source, 0)
                 if new_priority < existing_priority:
