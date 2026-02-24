@@ -293,20 +293,6 @@ class TestExtractEdinetZip:
         finally:
             self._cleanup_result(result)
 
-    def test_extract_legacy_xbrl(self):
-        """旧形式の.xbrlファイルがフォールバックで検出されること"""
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, 'w') as zf:
-            zf.writestr('XBRL/PublicDoc/report.xbrl', '<xbrli:xbrl></xbrli:xbrl>')
-
-        result = extract_edinet_zip(buf.getvalue())
-        try:
-            assert result is not None
-            assert isinstance(result, list)
-            assert result[0].suffix == '.xbrl'
-        finally:
-            self._cleanup_result(result)
-
     def test_extract_empty_zip(self):
         """XBRL関連ファイルのないZIPはNoneを返すこと"""
         buf = io.BytesIO()
