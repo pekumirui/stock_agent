@@ -15,6 +15,14 @@
     {%- endif -%}
 {%- endmacro %}
 
+{% macro fmt_progress(val, baseline) -%}
+    {%- if val is none -%}-
+    {%- elif val >= baseline + 10 -%}<span class="positive">{{ "{:.1f}".format(val) }}%</span>
+    {%- elif val < baseline - 10 -%}<span class="negative">{{ "{:.1f}".format(val) }}%</span>
+    {%- else -%}{{ "{:.1f}".format(val) }}%
+    {%- endif -%}
+{%- endmacro %}
+
 {% macro fmt_eps(val) -%}
     {%- if val is none -%}-
     {%- else -%}{{ "{:,.1f}".format(val) }}
@@ -26,6 +34,16 @@
 <td>
     <div class="cell-value">{% if is_eps %}{{ fmt_eps(val) }}{% else %}{{ fmt_val(val) }}{% endif %}</div>
     <div class="cell-pct">{{ fmt_pct(pct) }}</div>
+</td>
+{% endmacro %}
+
+{# --- Render a forecast cell: absolute value + progress% or YoY% --- #}
+{% macro forecast_cell(val, pct, pct_type="yoy", baseline=75, is_eps=false) %}
+<td>
+    <div class="cell-value">{% if is_eps %}{{ fmt_eps(val) }}{% else %}{{ fmt_val(val) }}{% endif %}</div>
+    <div class="cell-pct">
+        {%- if pct_type == "progress" -%}{{ fmt_progress(pct, baseline) }}{%- else -%}{{ fmt_pct(pct) }}{%- endif -%}
+    </div>
 </td>
 {% endmacro %}
 
@@ -57,12 +75,12 @@
             {% endfor %}
             {% if forecast %}
             <tr class="forecast-row">
-                <td class="col-period-label">会社予想</td>
-                {{ data_cell(forecast.revenue, forecast.revenue_yoy_pct) }}
-                {{ data_cell(forecast.operating_income, forecast.operating_income_yoy_pct) }}
-                {{ data_cell(forecast.ordinary_income, forecast.ordinary_income_yoy_pct) }}
-                {{ data_cell(forecast.net_income, forecast.net_income_yoy_pct) }}
-                {{ data_cell(forecast.eps, forecast.eps_yoy_pct, is_eps=true) }}
+                <td class="col-period-label">{{ forecast.label }}</td>
+                {{ forecast_cell(forecast.revenue, forecast.revenue_pct, forecast.pct_type, forecast.progress_baseline) }}
+                {{ forecast_cell(forecast.operating_income, forecast.operating_income_pct, forecast.pct_type, forecast.progress_baseline) }}
+                {{ forecast_cell(forecast.ordinary_income, forecast.ordinary_income_pct, forecast.pct_type, forecast.progress_baseline) }}
+                {{ forecast_cell(forecast.net_income, forecast.net_income_pct, forecast.pct_type, forecast.progress_baseline) }}
+                {{ forecast_cell(forecast.eps, forecast.eps_pct, forecast.pct_type, forecast.progress_baseline, is_eps=true) }}
             </tr>
             {% endif %}
         </tbody>
