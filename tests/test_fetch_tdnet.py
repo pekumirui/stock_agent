@@ -11,7 +11,8 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, patch
 from fetch_tdnet import (
     detect_fiscal_period,
     detect_fiscal_end_date_from_title,
@@ -22,9 +23,10 @@ from fetch_tdnet import (
     _extract_metadata_from_attachment,
     _extract_filing_date_from_namelist,
     _pick_ix_value,
+    _load_or_fetch_announcements,
 )
 from fetch_financials import _wareki_to_seireki
-from db_utils import get_connection, insert_financial
+from db_utils import get_connection, insert_financial, insert_announcement
 
 
 class TestFiscalPeriodDetection:
@@ -800,6 +802,230 @@ class TestExtractFilingDateFromNamelist:
         assert _extract_filing_date_from_namelist(namelist) == "2026-02-14"
 
 
+class TestLoadOrFetchAnnouncements:
+    """_load_or_fetch_announcements() のテスト"""
+
+    SAMPLE_ANNOUNCEMENTS = [
+        {
+            'ticker_code': '7203',
+            'company_name': 'トヨタ自動車',
+            'title': '2026年3月期 第3四半期決算短信',
+            'announcement_date': '2026-02-14',
+            'announcement_time': '15:00',
+            'announcement_type': 'earnings',
+            'xbrl_zip_url': 'https://example.com/test.zip',
+            'document_url': 'https://example.com/test.pdf',
+        },
+        {
+            'ticker_code': '6758',
+            'company_name': 'ソニーグループ',
+            'title': '業績予想の修正に関するお知らせ',
+            'announcement_date': '2026-02-14',
+            'announcement_time': '16:00',
+            'announcement_type': 'revision',
+            'xbrl_zip_url': None,
+            'document_url': 'https://example.com/rev.pdf',
+        },
+    ]
+
+    def test_no_cache_fetches_and_saves_json(self, tmp_path):
+        """JSONキャッシュなし → client呼び出し + JSON保存"""
+        cache_dir = tmp_path / "2026-02-14"
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once_with("2026-02-14")
+        manifest = cache_dir / "_announcements.json"
+        assert manifest.exists()
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+        assert len(saved) == 2
+        assert saved[0]['ticker_code'] == '7203'
+
+    def test_cache_hit_skips_client(self, tmp_path):
+        """JSONキャッシュあり → JSON読み込み（client呼ばない）"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text(
+            json.dumps(self.SAMPLE_ANNOUNCEMENTS, ensure_ascii=False),
+            encoding="utf-8"
+        )
+        client = MagicMock()
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_not_called()
+
+    def test_corrupted_cache_refetches(self, tmp_path):
+        """JSON破損 → 削除して再取得"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text("invalid json{{{", encoding="utf-8")
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once()
+        # 破損ファイルは削除され、正しいJSONが書き直される
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+        assert len(saved) == 2
+
+    def test_force_ignores_cache(self, tmp_path):
+        """force=True → JSON無視して再取得"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text(json.dumps([]), encoding="utf-8")
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(
+            client, "2026-02-14", cache_dir, force=True
+        )
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once()
+
+    def test_client_exception_returns_none(self, tmp_path):
+        """client例外 → None返却、JSON未作成"""
+        cache_dir = tmp_path / "2026-02-14"
+        client = MagicMock()
+        client.get_announcements.side_effect = ConnectionError("network error")
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result is None
+        manifest = cache_dir / "_announcements.json"
+        assert not manifest.exists()
+
+    def test_empty_list_saved_as_cache_for_past_date(self, tmp_path):
+        """過去日の空リスト（開示なし日）もJSONキャッシュとして保存"""
+        cache_dir = tmp_path / "2020-01-01"
+        client = MagicMock()
+        client.get_announcements.return_value = []
+
+        result = _load_or_fetch_announcements(client, "2020-01-01", cache_dir)
+
+        assert result == []
+        manifest = cache_dir / "_announcements.json"
+        assert manifest.exists()
+        assert json.loads(manifest.read_text(encoding="utf-8")) == []
+
+    def test_today_not_cached(self, tmp_path):
+        """当日分はJSONキャッシュを作成しない（開示追加の可能性）"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        cache_dir = tmp_path / today
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, today, cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        manifest = cache_dir / "_announcements.json"
+        assert not manifest.exists()
+
+
+class TestInsertAnnouncementUpsert:
+    """insert_announcement() UPSERT動作のテスト"""
+
+    def test_earnings_dedup(self, test_db, sample_company):
+        """同じearnings 2回insert → 1行のみ"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        with get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM announcements WHERE ticker_code = '9999'"
+            ).fetchone()[0]
+        assert count == 1
+
+    def test_revision_dedup_null_fiscal(self, test_db, sample_company):
+        """同じrevision 2回insert（fiscal_year/quarter=NULL）→ 1行のみ"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='16:00', announcement_type='revision',
+            title='業績予想の修正に関するお知らせ',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='16:00', announcement_type='revision',
+            title='業績予想の修正に関するお知らせ',
+        )
+        with get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM announcements "
+                "WHERE ticker_code = '9999' AND announcement_type = 'revision'"
+            ).fetchone()[0]
+        assert count == 1
+
+    def test_upsert_updates_fields(self, test_db, sample_company):
+        """UPSERTでannouncement_time等が更新されること"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:30', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+            document_url='https://example.com/updated.pdf',
+        )
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_time, document_url FROM announcements "
+                "WHERE ticker_code = '9999'"
+            ).fetchone()
+        assert row[0] == '15:30'
+        assert row[1] == 'https://example.com/updated.pdf'
+
+    def test_upsert_preserves_existing_on_null(self, test_db, sample_company):
+        """UPSERTでNULL値は既存値を上書きしない（COALESCEで保護）"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+            document_url='https://example.com/original.pdf',
+        )
+        # 2回目はNULLで上書き試行
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time=None, announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year=None, fiscal_quarter=None,
+            document_url=None,
+        )
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_time, fiscal_year, fiscal_quarter, document_url "
+                "FROM announcements WHERE ticker_code = '9999'"
+            ).fetchone()
+        # 既存値が保持されること
+        assert row[0] == '15:00'
+        assert row[1] == '2026'
+        assert row[2] == 'Q3'
+        assert row[3] == 'https://example.com/original.pdf'
+
+
 class TestComputeFiscalEndDate:
     """FiscalYearEnd + fiscal_quarter → fiscal_end_date計算のテスト"""
 
@@ -888,8 +1114,3 @@ class TestFiscalEndDateCorrectionWithFiscalYearEnd:
 
         assert detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter) is None
         assert compute_fiscal_end_date(fiscal_year_end, fiscal_quarter) == "2025-06-30"
-
-
-# TdnetClient のテストは実際のHTTPリクエストが必要なため、
-# モックを使った統合テストは別途作成することを推奨
-# ここでは基本的なロジックのユニットテストのみ実装

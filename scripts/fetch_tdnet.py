@@ -11,6 +11,7 @@ TDnetから決算短信のXBRLを取得し、決算情報をDBに保存する
 """
 import argparse
 import calendar
+import json
 import re
 import shutil
 import sys
@@ -906,6 +907,42 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
     )
 
 
+def _load_or_fetch_announcements(
+    client, target_date: str, cache_date_dir: Path, force: bool = False
+) -> Optional[List[Dict[str, Any]]]:
+    """日次announcements一覧をJSONキャッシュ経由で取得。
+
+    JSONキャッシュが存在すればそれを返し、なければTDnet HTMLを取得して
+    JSONに保存してから返す。force=Trueの場合はキャッシュを無視して再取得。
+    当日分は開示が追加される可能性があるため、JSONキャッシュを作成しない。
+
+    Returns:
+        announcements list on success, None on fetch failure (network error etc.)
+    """
+    manifest = cache_date_dir / "_announcements.json"
+    is_today = target_date == datetime.now().strftime("%Y-%m-%d")
+
+    if not force and not is_today and manifest.exists():
+        try:
+            return json.loads(manifest.read_text(encoding="utf-8"))
+        except Exception:
+            manifest.unlink(missing_ok=True)
+
+    try:
+        announcements = client.get_announcements(target_date)
+    except Exception as e:
+        print(f"  [ERROR] HTML取得失敗: {e}")
+        return None
+
+    # 過去日のみJSON保存（当日は開示追加の可能性があるためキャッシュしない）
+    if not is_today:
+        cache_date_dir.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            json.dumps(announcements, ensure_ascii=False), encoding="utf-8"
+        )
+    return announcements
+
+
 def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, int]) -> bool:
     """キャッシュZIPからメタデータ抽出→パース→DB投入
 
@@ -981,17 +1018,17 @@ def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, 
 
 
 def fetch_tdnet_financials(days: int = 1, tickers: list = None,
-                          date_from: str = None, date_to: str = None):
+                          date_from: str = None, date_to: str = None,
+                          force: bool = False):
     """
     TDnet決算短信を取得
-
-    【NEW】JPXリスト外のスキップ件数を統計出力
 
     Args:
         days: 過去N日分を取得（デフォルト1日）
         tickers: 対象銘柄リスト（None=全銘柄）
         date_from: 日付範囲開始（YYYY-MM-DD）
         date_to: 日付範囲終了（YYYY-MM-DD）
+        force: JSONキャッシュを無視して再取得
     """
     log_id = log_batch_start("fetch_tdnet")
     processed = 0
@@ -1032,33 +1069,27 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
             print(f"\n[{target_date}]")
 
             cache_date_dir = TDNET_XBRL_CACHE_DIR / target_date
-            marker = cache_date_dir / '_complete.marker'
 
-            if marker.exists():
-                # キャッシュから処理（HTML取得スキップ）
+            announcements = _load_or_fetch_announcements(
+                client, target_date, cache_date_dir, force=force
+            )
+
+            if announcements is None:
+                # HTML取得失敗 → ZIPフォールバック（earningsのみ復旧）
                 zip_files = sorted(cache_date_dir.glob('*.zip'))
-                if not zip_files:
-                    print("  キャッシュ(空)")
-                    continue
-
-                # 銘柄フィルタ（展開不要で高速）
-                if tickers:
-                    tickers_set = set(tickers)
-                    zip_files = [
-                        z for z in zip_files
-                        if _get_ticker_from_zip_path(z) in tickers_set
-                    ]
-
-                print(f"  キャッシュから{len(zip_files)}件処理")
-                prev_processed = cache_stats.get('processed', 0)
-                for zip_path in zip_files:
-                    process_cached_zip(zip_path, target_date, cache_stats)
-                # この日に新規処理された分だけprocessedに加算
-                processed += cache_stats.get('processed', 0) - prev_processed
+                if zip_files:
+                    if tickers:
+                        tickers_set = set(tickers)
+                        zip_files = [
+                            z for z in zip_files
+                            if _get_ticker_from_zip_path(z) in tickers_set
+                        ]
+                    print(f"  HTML取得失敗、キャッシュZIPから{len(zip_files)}件処理")
+                    prev = cache_stats.get('processed', 0)
+                    for zip_path in zip_files:
+                        process_cached_zip(zip_path, target_date, cache_stats)
+                    processed += cache_stats.get('processed', 0) - prev
                 continue
-
-            # 従来フロー: HTML発見 → XBRL取得 → パース → DB投入
-            announcements = client.get_announcements(target_date)
 
             if not announcements:
                 print("  決算短信なし")
@@ -1072,7 +1103,6 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 print(f"  フィルタ後: {len(announcements)}件")
 
             # 各適時開示を処理
-            has_failure = False
             for announcement in announcements:
                 ticker_code = announcement['ticker_code']
                 announcement_type = announcement.get('announcement_type', 'earnings')
@@ -1081,7 +1111,7 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                     skipped_out_of_scope += 1
                     continue
 
-                # 全announcements → announcements テーブルに保存
+                # 全announcements → announcements テーブルに保存（UPSERT）
                 fiscal_year_ann, fiscal_quarter_ann = None, None
                 if announcement_type == 'earnings':
                     fiscal_year_ann, fiscal_quarter_ann = detect_fiscal_period(
@@ -1101,29 +1131,23 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 announcements_saved += 1
 
                 # 決算短信のみ: XBRL解析 + financials 投入
+                # download_xbrl_zip()が既存ZIPをキャッシュヒットするため、
+                # JSONキャッシュ経由でもHTTP取得は発生しない
                 if announcement_type == 'earnings' and announcement.get('xbrl_zip_url'):
                     if process_tdnet_announcement(client, announcement):
                         processed += 1
-                    else:
-                        has_failure = True
-
-            # HTML取得が正常完了した日にマーカー作成
-            # --ticker指定時はマーカーを作成しない（部分取得のため）
-            if not has_failure and announcements and not tickers:
-                cache_date_dir.mkdir(parents=True, exist_ok=True)
-                marker.touch()
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
         print(f"\n処理完了: 決算データ {processed}件保存, 適時開示 {announcements_saved}件保存")
-        if cache_stats.get('processed', 0) > 0:
-            print(f"  うちキャッシュ経由: {cache_stats['processed']}件")
         if skipped_out_of_scope > 0:
             print(f"JPXリスト外のためスキップ: {skipped_out_of_scope}件")
+        if cache_stats.get('processed', 0) > 0:
+            print(f"ZIPフォールバック: {cache_stats['processed']}件処理")
         if cache_stats.get('skipped_not_listed', 0) > 0:
-            print(f"キャッシュ: JPXリスト外スキップ {cache_stats['skipped_not_listed']}件")
+            print(f"ZIPフォールバック: JPXリスト外スキップ {cache_stats['skipped_not_listed']}件")
         if cache_stats.get('failed', 0) > 0:
-            print(f"キャッシュ: 処理失敗 {cache_stats['failed']}件")
+            print(f"ZIPフォールバック: 処理失敗 {cache_stats['failed']}件")
 
     except Exception as e:
         log_batch_end(log_id, "failed", processed, str(e))
@@ -1145,6 +1169,8 @@ def main():
                        help='日付範囲開始（YYYY-MM-DD）')
     parser.add_argument('--date-to',
                        help='日付範囲終了（YYYY-MM-DD）')
+    parser.add_argument('--force', action='store_true',
+                       help='JSONキャッシュを無視して再取得')
     args = parser.parse_args()
 
     # バリデーション
@@ -1180,7 +1206,11 @@ def main():
         tickers = [t.strip() for t in args.ticker.split(',')]
 
     # バッチ実行
-    fetch_tdnet_financials(days=days, tickers=tickers, date_from=date_from, date_to=date_to)
+    fetch_tdnet_financials(
+        days=days, tickers=tickers,
+        date_from=date_from, date_to=date_to,
+        force=args.force,
+    )
 
 
 if __name__ == "__main__":

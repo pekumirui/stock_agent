@@ -304,13 +304,13 @@ CREATE TABLE IF NOT EXISTS announcements (
     announcement_date TEXT NOT NULL,
     announcement_time TEXT,
     announcement_type TEXT NOT NULL,  -- 'earnings', 'revision', 'dividend', 'other'
-    title TEXT,
+    title TEXT NOT NULL,
     fiscal_year TEXT,
     fiscal_quarter TEXT,
     document_url TEXT,
     source TEXT DEFAULT 'TDnet',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
-    UNIQUE(ticker_code, announcement_date, announcement_type, fiscal_year, fiscal_quarter),
+    UNIQUE(ticker_code, announcement_date, announcement_type, title),
     FOREIGN KEY (ticker_code) REFERENCES companies(ticker_code)
 );
 CREATE INDEX IF NOT EXISTS idx_announce_date ON announcements(announcement_date);
