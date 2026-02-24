@@ -49,40 +49,25 @@ def fetch_stock_data_batch(ticker_codes: list, start_date: str = None, end_date:
     """
     symbols = [ticker_to_yahoo_symbol(t) for t in ticker_codes]
 
-    try:
-        if period:
-            df = yf.download(
-                tickers=" ".join(symbols),
-                period=period,
-                auto_adjust=False,
-                actions=True,
-                group_by="ticker",
-                threads=False,
-                progress=False,
-            )
-        elif start_date:
-            df = yf.download(
-                tickers=" ".join(symbols),
-                start=start_date,
-                end=end_date,
-                auto_adjust=False,
-                actions=True,
-                group_by="ticker",
-                threads=False,
-                progress=False,
-            )
-        else:
-            # デフォルトは過去5日
-            df = yf.download(
-                tickers=" ".join(symbols),
-                period="5d",
-                auto_adjust=False,
-                actions=True,
-                group_by="ticker",
-                threads=False,
-                progress=False,
-            )
+    params = {
+        "tickers": " ".join(symbols),
+        "auto_adjust": False,
+        "actions": True,
+        "group_by": "ticker",
+        "threads": False,
+        "progress": False,
+    }
+    if period:
+        params["period"] = period
+    elif start_date:
+        params["start"] = start_date
+        if end_date:
+            params["end"] = end_date
+    else:
+        params["period"] = "5d"
 
+    try:
+        df = yf.download(**params)
         return df
     except Exception as e:
         print(f"  [ERROR] バッチ取得失敗: {e}")
