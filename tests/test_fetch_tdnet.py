@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from fetch_tdnet import (
     detect_fiscal_period,
     detect_fiscal_end_date_from_title,
+    compute_fiscal_end_date,
     _normalize_jp_date,
     _get_ticker_from_namelist,
     extract_metadata_from_summary,
@@ -797,6 +798,96 @@ class TestExtractFilingDateFromNamelist:
             'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-130A0-2025-12-31-01-2026-02-14-ixbrl.htm'
         ]
         assert _extract_filing_date_from_namelist(namelist) == "2026-02-14"
+
+
+class TestComputeFiscalEndDate:
+    """FiscalYearEnd + fiscal_quarter → fiscal_end_date計算のテスト"""
+
+    def test_march_fy_q1(self):
+        """3月期Q1 → 6月末"""
+        assert compute_fiscal_end_date("2026-03-31", "Q1") == "2025-06-30"
+
+    def test_march_fy_q2(self):
+        """3月期Q2 → 9月末"""
+        assert compute_fiscal_end_date("2026-03-31", "Q2") == "2025-09-30"
+
+    def test_march_fy_q3(self):
+        """3月期Q3 → 12月末"""
+        assert compute_fiscal_end_date("2026-03-31", "Q3") == "2025-12-31"
+
+    def test_march_fy_fy(self):
+        """3月期FY → 3月末"""
+        assert compute_fiscal_end_date("2026-03-31", "FY") == "2026-03-31"
+
+    def test_december_fy_q1(self):
+        """12月期Q1 → 3月末"""
+        assert compute_fiscal_end_date("2025-12-31", "Q1") == "2025-03-31"
+
+    def test_december_fy_q3(self):
+        """12月期Q3 → 9月末"""
+        assert compute_fiscal_end_date("2025-12-31", "Q3") == "2025-09-30"
+
+    def test_september_fy_q1(self):
+        """9月期Q1 → 12月末"""
+        assert compute_fiscal_end_date("2026-09-30", "Q1") == "2025-12-31"
+
+    def test_february_fy(self):
+        """2月期FY → 2月末"""
+        assert compute_fiscal_end_date("2026-02-28", "FY") == "2026-02-28"
+
+    def test_none_input(self):
+        """None入力"""
+        assert compute_fiscal_end_date(None, "Q3") is None
+
+    def test_invalid_format(self):
+        """不正フォーマット"""
+        assert compute_fiscal_end_date("2026/03/31", "Q3") is None
+
+    def test_invalid_quarter(self):
+        """不正四半期"""
+        assert compute_fiscal_end_date("2026-03-31", "Q5") is None
+
+
+class TestFiscalEndDateCorrectionWithFiscalYearEnd:
+    """FiscalYearEndからfiscal_end_date補正のテスト
+
+    キャッシュ経路でtitleに「YYYY年M月期」が含まれない場合に、
+    FiscalYearEnd + QuarterlyPeriodから正しいfiscal_end_dateを計算するロジックの検証
+    """
+
+    def test_q3_title_without_fiscal_period_uses_fiscal_year_end(self):
+        """タイトルに「YYYY年M月期」が無い場合、FiscalYearEndから計算される"""
+        title = "第３四半期決算短信〔ＩＦＲＳ〕（連結）"
+        fiscal_year = "2026"
+        fiscal_quarter = "Q3"
+        fiscal_year_end = "2026-03-31"
+
+        # タイトルからは推定不可
+        title_result = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        assert title_result is None
+
+        # FiscalYearEndからは正しく計算
+        computed = compute_fiscal_end_date(fiscal_year_end, fiscal_quarter)
+        assert computed == "2025-12-31"
+
+    def test_title_with_fiscal_period_takes_priority(self):
+        """タイトルに「YYYY年M月期」がある場合はタイトル推定が優先"""
+        title = "2026年3月期 第3四半期決算短信〔IFRS〕(連結)"
+        fiscal_year = "2026"
+        fiscal_quarter = "Q3"
+
+        title_result = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        assert title_result == "2025-12-31"
+
+    def test_q1_title_without_fiscal_period(self):
+        """Q1でもタイトルに「YYYY年M月期」が無い場合はFiscalYearEndから計算"""
+        title = "第１四半期決算短信〔日本基準〕（連結）"
+        fiscal_year = "2026"
+        fiscal_quarter = "Q1"
+        fiscal_year_end = "2026-03-31"
+
+        assert detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter) is None
+        assert compute_fiscal_end_date(fiscal_year_end, fiscal_quarter) == "2025-06-30"
 
 
 # TdnetClient のテストは実際のHTTPリクエストが必要なため、
