@@ -294,26 +294,80 @@ def extract_metadata_from_summary(summary_html: str) -> Dict[str, Any]:
     }
 
 
-def _extract_metadata_from_attachment(namelist: list) -> Optional[Dict[str, Any]]:
-    """Attachmentファイル名パターンからメタデータ抽出（Summary無しZIPのフォールバック）
+# DEI TypeOfCurrentPeriodDEI → fiscal_quarter マッピング
+DEI_PERIOD_MAP = {'Q1': 'Q1', 'Q2': 'Q2', 'Q3': 'Q3', 'Q4': 'Q4', 'FY': 'FY', 'HY': 'Q2'}
+
+
+def _pick_ix_value(html: str, tag: str) -> Optional[str]:
+    """iXBRL HTML内のix:nonNumeric/nonFractionタグからテキスト値を抽出
+
+    name属性のシングル/ダブルクオート両対応、タグ名の大文字小文字を無視。
+    """
+    m = re.search(
+        rf'<ix:(?:nonnumeric|nonfraction)\b[^>]*\bname=["\']({re.escape(tag)})["\'][^>]*>(.*?)</ix:(?:nonnumeric|nonfraction)>',
+        html, re.IGNORECASE | re.DOTALL,
+    )
+    if not m:
+        return None
+    val = re.sub(r'<[^>]+>', '', m.group(2)).strip()
+    return val or None
+
+
+def _extract_metadata_from_attachment(zf: 'zipfile.ZipFile', namelist: list) -> Optional[Dict[str, Any]]:
+    """Attachmentファイル名+iXBRL DEI要素からメタデータ抽出（Summary無しZIPのフォールバック）
 
     Attachmentファイル名例:
     0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm
                                 ^^^^^  ^^^^^^^^^^     ^^^^^^^^^^
                                 code   fiscal_end     filing_date
+
+    iXBRL DEI要素から取得:
+    - jpdei_cor:TypeOfCurrentPeriodDEI → Q1/Q2/Q3/Q4/FY/HY
+    - jpdei_cor:CurrentFiscalYearEndDateDEI → YYYY-MM-DD
+
+    DEI要素が複数ファイルに分散している場合も走査して集約する。
     """
     ticker = _get_ticker_from_namelist(namelist)
     if not ticker:
         return None
 
+    fq = None
+    fy = None
+    dei_fy_end = None
+    filing_date = None
+    first_fiscal_end = None
+
     for name in namelist:
         m = ATTACHMENT_DATE_RE.search(name)
-        if m:
-            fiscal_end_date = m.group(2)
-            filing_date = m.group(3)
+        if not m or not name.endswith('-ixbrl.htm'):
+            continue
 
-            # taxonomyプレフィックスから大まかな期種判定
-            # a=annual(FY), q=quarterly(Q1-Q3), s=semi-annual(Q2)
+        if filing_date is None:
+            filing_date = m.group(3)
+            first_fiscal_end = m.group(2)
+
+        # iXBRL本文からDEI要素を読み取り
+        html = zf.read(name).decode('utf-8', errors='ignore')
+
+        if not fq:
+            dei_type = _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI')
+            fq = DEI_PERIOD_MAP.get(dei_type)
+
+        if not dei_fy_end:
+            dei_fy_end = _pick_ix_value(html, 'jpdei_cor:CurrentFiscalYearEndDateDEI')
+            if dei_fy_end and re.match(r'\d{4}-\d{2}-\d{2}$', dei_fy_end):
+                fy = dei_fy_end[:4]
+
+        # 両方取れたら早期終了
+        if fq and fy:
+            break
+
+    if filing_date is None:
+        return None
+
+    # DEIが取れない場合はtaxonomy prefixフォールバック
+    if not fq:
+        for name in namelist:
             taxonomy_match = re.search(r'tse-([aqs])[cn]', name)
             if taxonomy_match:
                 prefix = taxonomy_match.group(1)
@@ -321,27 +375,20 @@ def _extract_metadata_from_attachment(namelist: list) -> Optional[Dict[str, Any]
                     fq = 'FY'
                 elif prefix == 's':
                     fq = 'Q2'
-                else:
-                    fq = None  # 四半期だがQ何かは不明
-            else:
-                fq = None
+                break
 
-            # fiscal_year判定: FYならfiscal_end_dateの年がそのままfiscal_year
-            # 四半期/半期ではfiscal_end_dateの年≠fiscal_yearの可能性あるためNone
-            if fq == 'FY':
-                fy = fiscal_end_date[:4]
-            else:
-                fy = None
+    # fiscal_year: DEIのfy_end年を使用、なければFY時のみfiscal_end_dateの年
+    if not fy and fq == 'FY' and first_fiscal_end:
+        fy = first_fiscal_end[:4]
 
-            return {
-                'ticker_code': ticker,
-                'fiscal_year': fy,
-                'fiscal_quarter': fq,
-                'fiscal_year_end': None,  # Summaryが無いので不明
-                'announcement_date': filing_date,
-                'document_name': None,
-            }
-    return None
+    return {
+        'ticker_code': ticker,
+        'fiscal_year': fy,
+        'fiscal_quarter': fq,
+        'fiscal_year_end': dei_fy_end,
+        'announcement_date': filing_date,
+        'document_name': None,
+    }
 
 
 # ============================================
@@ -842,8 +889,8 @@ def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, 
                 if metadata and not metadata.get('ticker_code'):
                     metadata['ticker_code'] = _get_ticker_from_namelist(namelist)
             else:
-                # Attachmentファイル名からフォールバック抽出（Summary無し7件対応）
-                metadata = _extract_metadata_from_attachment(namelist)
+                # Attachmentファイル名+iXBRL DEIからフォールバック抽出
+                metadata = _extract_metadata_from_attachment(zf, namelist)
 
         if not metadata or not metadata.get('ticker_code'):
             print(f"    [WARN] メタデータ抽出失敗: {zip_path.name}")
