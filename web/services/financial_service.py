@@ -403,6 +403,14 @@ def get_financial_history(ticker_code: str) -> dict:
                 return round((cur_val - prev_val) * 100.0 / abs(prev_val), 1)
             return None
 
+        def _progress_pct(actual_val, forecast_val) -> Optional[float]:
+            """進捗率 = actual / forecast * 100。予想が負値の場合はNone"""
+            if actual_val is None or forecast_val is None or forecast_val == 0:
+                return None
+            if forecast_val < 0:
+                return None
+            return round(actual_val * 100.0 / forecast_val, 1)
+
         # ==================================================
         # 1. 累計データ（Q1-Q4 + FY）を取得し、四半期タイプ別にグループ化
         # ==================================================
@@ -631,78 +639,76 @@ def get_financial_history(ticker_code: str) -> dict:
         result["quarterly"] = quarterly_list
 
         # ==================================================
-        # 3. 会社予想（最新FY予想）
+        # 3. 会社予想 + 進捗率（or 来期予想 + YoY%）
         # ==================================================
-        fc_cursor = conn.execute(
-            """
-            SELECT fiscal_year,
-                   revenue, operating_income, ordinary_income, net_income, eps
-            FROM management_forecasts
-            WHERE ticker_code = ? AND fiscal_quarter = 'FY'
-            ORDER BY fiscal_year DESC, announced_date DESC
-            LIMIT 1
-            """,
-            [ticker_code],
-        )
-        fc_row = fc_cursor.fetchone()
-        if fc_row:
-            fc_fy = fc_row["fiscal_year"]
-            # 前年度FY実績との比較
-            fy_actual_cursor = conn.execute(
-                """
-                SELECT revenue, operating_income, ordinary_income,
-                       net_income, eps
-                FROM financials
-                WHERE ticker_code = ? AND fiscal_year = ?
-                      AND fiscal_quarter = 'FY'
-                ORDER BY fiscal_end_date DESC LIMIT 1
-                """,
-                [ticker_code, str(int(fc_fy) - 1)],
-            )
-            fy_actual = fy_actual_cursor.fetchone()
-            # FYが無ければQ4累計を代用
-            if not fy_actual:
-                fy_actual_cursor = conn.execute(
-                    """
-                    SELECT revenue, operating_income, ordinary_income,
-                           net_income, eps
-                    FROM financials
-                    WHERE ticker_code = ? AND fiscal_year = ?
-                          AND fiscal_quarter = 'Q4'
-                    ORDER BY fiscal_end_date DESC LIMIT 1
-                    """,
-                    [ticker_code, str(int(fc_fy) - 1)],
-                )
-                fy_actual = fy_actual_cursor.fetchone()
+        _PROGRESS_BASELINE = {"Q1": 25.0, "Q2": 50.0, "Q3": 75.0}
+        latest_cum_fy = cum_rows[-1]["fiscal_year"] if cum_rows else None
 
-            result["forecast"] = {
-                "fiscal_year": fc_fy,
-                "revenue": fc_row["revenue"],
-                "revenue_yoy_pct": _yoy_pct(
-                    fc_row["revenue"],
-                    fy_actual["revenue"] if fy_actual else None,
-                ),
-                "operating_income": fc_row["operating_income"],
-                "operating_income_yoy_pct": _yoy_pct(
-                    fc_row["operating_income"],
-                    fy_actual["operating_income"] if fy_actual else None,
-                ),
-                "ordinary_income": fc_row["ordinary_income"],
-                "ordinary_income_yoy_pct": _yoy_pct(
-                    fc_row["ordinary_income"],
-                    fy_actual["ordinary_income"] if fy_actual else None,
-                ),
-                "net_income": fc_row["net_income"],
-                "net_income_yoy_pct": _yoy_pct(
-                    fc_row["net_income"],
-                    fy_actual["net_income"] if fy_actual else None,
-                ),
-                "eps": fc_row["eps"],
-                "eps_yoy_pct": _yoy_pct(
-                    fc_row["eps"],
-                    fy_actual["eps"] if fy_actual else None,
-                ),
-            }
+        if latest_q and latest_cum_fy:
+            if latest_q == "FY":
+                forecast_target_fy = str(int(latest_cum_fy) + 1)
+                forecast_label = "来期予想"
+                show_progress = False
+            else:
+                forecast_target_fy = latest_cum_fy
+                forecast_label = "会社予想"
+                show_progress = True
+
+            fc_cursor = conn.execute(
+                """
+                SELECT fiscal_year,
+                       revenue, operating_income, ordinary_income,
+                       net_income, eps
+                FROM management_forecasts
+                WHERE ticker_code = ? AND fiscal_quarter = 'FY'
+                      AND fiscal_year = ?
+                ORDER BY announced_date DESC
+                LIMIT 1
+                """,
+                [ticker_code, forecast_target_fy],
+            )
+            fc_row = fc_cursor.fetchone()
+            if fc_row:
+                fc_fy = fc_row["fiscal_year"]
+                metrics = [
+                    "revenue", "operating_income", "ordinary_income",
+                    "net_income", "eps",
+                ]
+
+                if show_progress:
+                    # 進捗率: 最新累計実績 / FY予想
+                    latest_actual = cumulative_list[-1] if cumulative_list else None
+                    forecast_entry = {
+                        "label": forecast_label,
+                        "fiscal_year": fc_fy,
+                        "pct_type": "progress",
+                        "progress_baseline": _PROGRESS_BASELINE.get(
+                            latest_q, 75.0
+                        ),
+                    }
+                    for m in metrics:
+                        forecast_entry[m] = fc_row[m]
+                        forecast_entry[f"{m}_pct"] = _progress_pct(
+                            latest_actual[m] if latest_actual else None,
+                            fc_row[m],
+                        )
+                else:
+                    # 来期予想: YoY% vs 今期FY実績
+                    fy_actual = cumulative_list[-1] if cumulative_list else None
+                    forecast_entry = {
+                        "label": forecast_label,
+                        "fiscal_year": fc_fy,
+                        "pct_type": "yoy",
+                        "progress_baseline": 100.0,
+                    }
+                    for m in metrics:
+                        forecast_entry[m] = fc_row[m]
+                        forecast_entry[f"{m}_pct"] = _yoy_pct(
+                            fc_row[m],
+                            fy_actual[m] if fy_actual else None,
+                        )
+
+                result["forecast"] = forecast_entry
 
         return result
     finally:
