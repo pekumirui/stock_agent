@@ -33,12 +33,15 @@ sys.path.insert(0, str(BASE_DIR / "lib"))
 # XBRL解析関数を fetch_financials.py から再利用
 from fetch_financials import (
     parse_ixbrl_financials,
+    parse_ixbrl_forecast,
+    _extract_forecast_fiscal_year,
     extract_edinet_zip,
     _wareki_to_seireki,
 )
 
 from db_utils import (
     insert_financial,
+    insert_management_forecast,
     insert_announcement,
     log_batch_start, log_batch_end,
     is_valid_ticker_code,
@@ -738,9 +741,35 @@ def _process_zip_to_db(
                 print(f"    [一部欠損] [{ticker_code} {fiscal_year}{fiscal_quarter}] {detail}（欠損: {', '.join(missing)}）")
             else:
                 print(f"    保存完了: [{ticker_code} {fiscal_year}{fiscal_quarter}] {detail}")
-            return True
-        else:
-            return False
+
+        # --- 業績予想データの抽出・保存（実績保存の成否に依らず実行） ---
+        forecast_saved = 0
+        try:
+            forecasts = parse_ixbrl_forecast(extracted_paths)
+            if forecasts:
+                forecast_fy = _extract_forecast_fiscal_year(extracted_paths)
+                if forecast_fy:
+                    for quarter, data in forecasts.items():
+                        if any(v is not None for v in data.values()):
+                            ok = insert_management_forecast(
+                                ticker_code=ticker_code,
+                                fiscal_year=forecast_fy,
+                                fiscal_quarter=quarter,
+                                announced_date=announcement_date,
+                                forecast_type='initial',
+                                source='TDnet',
+                                **data
+                            )
+                            if ok:
+                                forecast_saved += 1
+                    if forecast_saved > 0:
+                        print(f"    [予想] {forecast_saved}件保存: {ticker_code} → {forecast_fy}")
+                else:
+                    print(f"    [WARN] 予想の対象年度を特定できません")
+        except Exception as e:
+            print(f"    [WARN] 予想データ抽出失敗: {e}")
+
+        return saved or forecast_saved > 0
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
