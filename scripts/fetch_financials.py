@@ -210,6 +210,88 @@ XBRL_FACT_MAPPING_IFRS = {
     'BasicNetIncomePerShareUS': 'eps',        # US-GAAP基本的EPS
 }
 
+# 業績予想用マッピング（TDnet決算短信Summary iXBRLの予想セクション）
+# tse-ed-t / jpigp_cor 名前空間の要素名 → DBカラムのマッピング
+XBRL_FORECAST_MAPPING = {
+    # 売上高（日本基準）
+    'NetSales': 'revenue',
+    # 営業利益（日本基準）
+    'OperatingIncome': 'operating_income',
+    # 経常利益（日本基準）
+    'OrdinaryIncome': 'ordinary_income',
+    # 純利益（日本基準・連結）
+    'ProfitAttributableToOwnersOfParent': 'net_income',
+    # 純利益（日本基準・非連結）
+    'NetIncome': 'net_income',
+    # EPS（日本基準）
+    'NetIncomePerShare': 'eps',
+    # 配当（日本基準）
+    'DividendPerShare': 'dividend_per_share',
+    # IFRS系
+    'NetSalesIFRS': 'revenue',
+    'OperatingRevenuesIFRS': 'revenue',
+    'OperatingIncomeIFRS': 'operating_income',
+    'ProfitBeforeTaxIFRS': 'ordinary_income',
+    'ProfitIFRS': 'net_income',
+    'ProfitAttributableToOwnersOfParentIFRS': 'net_income',
+    'BasicEarningsPerShareIFRS': 'eps',
+    'DilutedEarningsPerShareIFRS': 'eps',
+    # US-GAAP系
+    'NetSalesUS': 'revenue',
+    'OperatingIncomeUS': 'operating_income',
+    'NetIncomeUS': 'net_income',
+    'NetIncomePerShareUS': 'eps',
+    # 業種別（tse-ed-t名前空間）
+    'OperatingRevenues': 'revenue',
+    'OrdinaryRevenuesBK': 'revenue',
+    'OrdinaryRevenuesIN': 'revenue',
+    'OperatingRevenuesSE': 'revenue',
+}
+
+
+def _is_forecast_context(context_ref: str):
+    """コンテキストRefから業績予想の種別と四半期を判定する。
+
+    Args:
+        context_ref: XBRLコンテキストの参照文字列
+
+    Returns:
+        (quarter: str, is_forecast: bool)
+        通期予想: ('FY', True)
+        半期予想: ('Q2', True)
+        対象外:   (None, False)
+
+    判定ロジック:
+        1. ForecastMember を含まない → 対象外
+        2. UpperMember または LowerMember を含む → 対象外（中心値のみ採用）
+        3. NextYear または NextAccumulatedQ2 で始まるDurationでない → 対象外（前期等を除外）
+        4. NextAccumulatedQ2 を含む → Q2半期予想
+        5. SecondQuarterMember等の配当四半期コンテキストは対象外
+        6. それ以外（NextYearDuration + ForecastMember）→ FY通期予想
+    """
+    if 'ForecastMember' not in context_ref:
+        return None, False
+    if 'UpperMember' in context_ref or 'LowerMember' in context_ref:
+        return None, False
+
+    # 対象は NextYear または NextAccumulatedQ2 を含むコンテキストのみ
+    if 'NextYear' not in context_ref and 'NextAccumulatedQ2' not in context_ref:
+        return None, False
+
+    # Q2半期予想
+    if 'NextAccumulatedQ2' in context_ref:
+        return 'Q2', True
+
+    # FY通期予想: AnnualMember付き、または四半期指定なし
+    # 配当四半期コンテキスト（SecondQuarterMember等）を除外
+    quarter_indicators = ['FirstQuarterMember', 'SecondQuarterMember', 'ThirdQuarterMember',
+                          'FourthQuarterMember', 'AccumulatedQ']
+    if any(q in context_ref for q in quarter_indicators):
+        return None, False
+
+    return 'FY', True
+
+
 # レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
 XBRL_TAGS_LEGACY = {
     'revenue': [
@@ -647,6 +729,148 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
             financials['fiscal_end_date'] = fiscal_end
 
     return financials
+
+
+def _extract_forecast_fiscal_year(ixbrl_paths: list) -> Optional[str]:
+    """iXBRLのContext要素からNextYearDurationの期末日を抽出し、予想対象の年度を返す。
+
+    NextYearDuration を含むコンテキストの endDate を取得し、
+    その年を fiscal_year 文字列として返す。
+    scenario付き・なし問わず NextYearDuration の endDate を探す。
+
+    Args:
+        ixbrl_paths: iXBRLファイルのパスリスト
+
+    Returns:
+        年度文字列 (例: "2026") or None
+    """
+    for ixbrl_path in ixbrl_paths:
+        xbrli_ns = None
+        found_end_date = None
+
+        for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
+            if event == "start-ns":
+                prefix, uri = elem
+                if uri == "http://www.xbrl.org/2003/instance":
+                    xbrli_ns = uri
+            elif event == "end" and xbrli_ns:
+                if elem.tag != f"{{{xbrli_ns}}}context":
+                    continue
+                ctx_id = elem.get("id", "")
+                is_next_year = "NextYear" in ctx_id and "Duration" in ctx_id
+                is_next_q2 = "NextAccumulatedQ2" in ctx_id and "Duration" in ctx_id
+                if not (is_next_year or is_next_q2):
+                    continue
+                period = elem.find(f"{{{xbrli_ns}}}period")
+                if period is None:
+                    continue
+                end_date = period.find(f"{{{xbrli_ns}}}endDate")
+                if end_date is not None and end_date.text:
+                    found_end_date = end_date.text
+                    break  # 最初に見つかったものを採用
+
+        if found_end_date:
+            # endDate の年部分を返す（例: "2026-03-31" → "2026"）
+            return found_end_date[:4]
+
+    return None
+
+
+def parse_ixbrl_forecast(ixbrl_paths) -> Dict[str, Dict[str, Any]]:
+    """XBRLPを使ってiXBRLから業績予想データを抽出する。
+
+    TDnet決算短信Summary iXBRLの予想セクション（NextYearDuration等のコンテキスト）
+    からデータを抽出する。parse_ixbrl_financials() と同様の構造だが、
+    _is_forecast_context() でコンテキストをフィルタし、XBRL_FORECAST_MAPPING を使用。
+
+    Args:
+        ixbrl_paths: iXBRLファイルのパス（Path）またはパスのリスト（List[Path]）
+
+    Returns:
+        {'FY': {'revenue': 123.4, 'operating_income': 12.3, ...}, 'Q2': {...}}
+        予想がない場合は空辞書。
+        連結データが存在する場合は連結を優先し、非連結のみの場合は非連結を使用。
+    """
+    parser = Parser(file_loader=_file_loader)
+
+    if isinstance(ixbrl_paths, list):
+        parser.ixbrl_files = ixbrl_paths
+    elif ixbrl_paths.suffix.lower() in ['.htm', '.html']:
+        parser.ixbrl_files = [ixbrl_paths]
+    else:
+        try:
+            parser.prepare_ixbrl(ixbrl_paths)
+        except ValueError:
+            public_doc_dir = ixbrl_paths.parent
+            htm_files = list(public_doc_dir.glob("*.htm")) + list(public_doc_dir.glob("*.html"))
+            if htm_files:
+                parser.ixbrl_files = htm_files
+            else:
+                return {}
+
+    # 連結・非連結を分けて収集
+    consolidated_data: Dict[str, Dict[str, Any]] = {}    # {'FY': {'revenue': ...}}
+    non_consolidated_data: Dict[str, Dict[str, Any]] = {}
+
+    try:
+        for fact in parser.load_facts():
+            # サポートされた名前空間のFactのみ対象
+            if not _is_supported_namespace(fact.qname):
+                continue
+
+            # 予想コンテキスト判定
+            quarter, is_forecast = _is_forecast_context(fact.context_ref)
+            if not is_forecast:
+                continue
+
+            # マッピング対象か確認
+            db_field = XBRL_FORECAST_MAPPING.get(fact.qname.local_name)
+            if not db_field:
+                continue
+
+            # 値を取得・変換
+            value = fact.value
+            if value is None:
+                continue
+
+            if isinstance(value, Decimal):
+                if db_field not in ('eps', 'dividend_per_share'):
+                    value = float(value / 1_000_000)
+                else:
+                    value = float(value)
+            else:
+                try:
+                    value = float(value)
+                    if db_field not in ('eps', 'dividend_per_share'):
+                        value = value / 1_000_000
+                except (ValueError, TypeError):
+                    continue
+
+            # 連結優先: コンテキストRefにNonConsolidatedが含まれる場合は非連結
+            ctx = fact.context_ref
+            if 'NonConsolidated' in ctx:
+                target = non_consolidated_data
+            else:
+                target = consolidated_data
+
+            # 四半期キーで収集（既にセット済みならスキップ）
+            if quarter not in target:
+                target[quarter] = {}
+            if db_field not in target[quarter]:
+                target[quarter][db_field] = value
+
+    except Exception as e:
+        print(f"    [ERROR] iXBRL予想パース失敗: {e}")
+        return {}
+
+    # 四半期ごとに「連結があれば連結、なければ非連結」を採用
+    result: Dict[str, Dict[str, Any]] = {}
+    for q in set(consolidated_data) | set(non_consolidated_data):
+        if q in consolidated_data:
+            result[q] = consolidated_data[q]
+        else:
+            result[q] = non_consolidated_data[q]
+    return result
 
 
 def _parse_xbrl_legacy(xbrl_content: str) -> Dict[str, Any]:
