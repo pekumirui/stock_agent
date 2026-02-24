@@ -292,36 +292,6 @@ def _is_forecast_context(context_ref: str):
     return 'FY', True
 
 
-# レガシーパーサー用: 財務項目のXBRLタグ（日本基準）
-XBRL_TAGS_LEGACY = {
-    'revenue': [
-        'jppfs_cor:NetSales',
-        'jppfs_cor:Revenue',
-        'jppfs_cor:OperatingRevenue',
-    ],
-    'gross_profit': [
-        'jppfs_cor:GrossProfit',
-    ],
-    'operating_income': [
-        'jppfs_cor:OperatingIncome',
-        'jppfs_cor:OperatingProfit',
-    ],
-    'ordinary_income': [
-        'jppfs_cor:OrdinaryIncome',
-        'jppfs_cor:OrdinaryProfit',
-    ],
-    'net_income': [
-        'jppfs_cor:ProfitLoss',
-        'jppfs_cor:NetIncome',
-        'jppfs_cor:ProfitLossAttributableToOwnersOfParent',
-    ],
-    'eps': [
-        'jppfs_cor:BasicEarningsLossPerShare',
-        'jppfs_cor:EarningsPerShare',
-        'jpcrp_cor:BasicEarningsLossPerShareSummaryOfBusinessResults',  # EDINET有報
-    ],
-}
-
 # jppfs名前空間パターン（日本基準）
 JPPFS_NAMESPACE_PATTERNS = [
     'jppfs_cor',
@@ -446,7 +416,6 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
         PublicDoc/
           manifest.xml (or manifest_*.xml)
           *.htm / *.html (iXBRLファイル)
-          *.xbrl (旧形式)
           *.xsd
           *_lab.xml, *_pre.xml, *_cal.xml (linkbase)
 
@@ -496,13 +465,6 @@ def extract_edinet_zip(zip_content: bytes) -> Optional[List[Path]]:
             # PublicDoc制約を緩和（TDnet対応）
             if "PublicDoc" in str(manifest) or ("XBRL" in str(manifest) and "AuditDoc" not in str(manifest)):
                 return [manifest]
-
-        # manifestがない場合は.xbrlファイルを探す（旧形式フォールバック）
-        for xbrl_file in sorted(temp_dir.rglob("*.xbrl")):
-            print(f"    [DEBUG] XBRLファイル発見: {xbrl_file.relative_to(temp_dir)}")
-            # PublicDoc制約を緩和（TDnet対応）
-            if "PublicDoc" in str(xbrl_file) or ("XBRL" in str(xbrl_file) and "AuditDoc" not in str(xbrl_file)):
-                return [xbrl_file]
 
         print(f"    [WARN] ZIPにXBRL関連ファイルが見つかりません")
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -873,51 +835,6 @@ def parse_ixbrl_forecast(ixbrl_paths) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def _parse_xbrl_legacy(xbrl_content: str) -> Dict[str, Any]:
-    """
-    レガシーXBRLパーサー（旧形式の.xbrlファイル用フォールバック）
-
-    Returns:
-        {'revenue': 123456.0, 'operating_income': 12345.0, ...}
-    """
-    financials = {}
-
-    try:
-        root = ET.fromstring(xbrl_content)
-        namespaces = dict([node for _, node in ET.iterparse(io.StringIO(xbrl_content), events=['start-ns'])])
-
-        for field, tags in XBRL_TAGS_LEGACY.items():
-            for tag in tags:
-                prefix, element = tag.split(':')
-
-                for ns_prefix, ns_uri in namespaces.items():
-                    if prefix in ns_prefix or prefix.lower() in ns_uri.lower():
-                        xpath = f".//{{{ns_uri}}}{element}"
-                        elements = root.findall(xpath)
-
-                        for elem in elements:
-                            context = elem.get('contextRef', '')
-                            if 'Current' in context or 'current' in context:
-                                try:
-                                    value = float(elem.text)
-                                    unit_ref = elem.get('unitRef', '')
-                                    if 'JPY' in unit_ref.upper():
-                                        value = value / 1_000_000
-                                    financials[field] = value
-                                    break
-                                except (ValueError, TypeError):
-                                    continue
-
-                if field in financials:
-                    break
-
-        return financials
-
-    except Exception as e:
-        print(f"  [ERROR] レガシーXBRLパース失敗: {e}")
-        return {}
-
-
 def edinet_code_to_ticker(edinet_code: str) -> Optional[str]:
     """EDINETコードから証券コードを取得"""
     with get_connection() as conn:
@@ -1099,10 +1016,8 @@ def process_document(client: EdinetClient, doc_info: dict,
             print(f"    パーサー: XBRLP (iXBRL)")
             financials = parse_ixbrl_financials(extracted_paths)
         else:
-            # 旧形式 .xbrl → レガシーパーサー使用
-            print(f"    パーサー: レガシー (.xbrl)")
-            xbrl_content = first_file.read_text(encoding='utf-8')
-            financials = _parse_xbrl_legacy(xbrl_content)
+            print(f"    [WARN] 未対応のファイル形式: {first_file.suffix}")
+            return False
 
         if not financials:
             print(f"    [WARN] 財務データを抽出できませんでした")
