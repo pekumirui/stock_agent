@@ -1,5 +1,8 @@
 ---
-paths: scripts/fetch_financials.py,scripts/fetch_tdnet.py
+paths:
+  - scripts/fetch_financials.py
+  - scripts/fetch_tdnet.py
+  - scripts/fetch_jquants_forecasts.py
 ---
 
 # XBRLタクソノミ - 要素名マッピングガイド
@@ -211,6 +214,53 @@ US-GAAP採用企業（オムロン、野村HD、富士フイルム等）の有�
 |---|---|
 | `GrossProfit` | IFRS標準（日本基準と共通） |
 | `GrossProfitIFRS` | jpigp_cor用 |
+
+## 業績予想コンテキストパターン（TDnet iXBRL）
+
+TDnet決算短信Summary iXBRLの業績予想データは `NextYearDuration` / `NextAccumulatedQ2Duration` コンテキストに格納される。
+抽出ロジック: `scripts/fetch_financials.py` の `_is_forecast_context()` と `parse_ixbrl_forecast()`。
+
+### 対象コンテキストパターン
+
+| パターン | 内容 | DBカラム `fiscal_quarter` |
+|---|---|---|
+| `NextYearDuration_ConsolidatedMember_ForecastMember` | 通期予想（連結） | `FY` |
+| `NextYearDuration_AnnualMember_ConsolidatedMember_ForecastMember` | 通期予想（連結・年次区分あり） | `FY` |
+| `NextYearDuration_NonConsolidatedMember_ForecastMember` | 通期予想（非連結、連結が優先） | `FY` |
+| `NextAccumulatedQ2Duration_ConsolidatedMember_ForecastMember` | Q2半期予想（連結） | `Q2` |
+
+### 除外コンテキスト
+
+- `UpperMember` / `LowerMember` を含むもの → レンジ予想（中心値 `ForecastMember` のみ採用）
+- `ForecastMember` を含まないもの → 実績コンテキスト
+- `NextYear` / `NextAccumulatedQ2` を含まないもの → 前期等
+
+### 連結優先ルール
+
+`parse_ixbrl_forecast()` は連結データ（`ConsolidatedMember`）が存在する場合は連結を優先し、
+連結データが存在しない場合のみ非連結データを使用する。
+
+### 業績予想要素マッピング（XBRL_FORECAST_MAPPING）
+
+`scripts/fetch_financials.py` の `XBRL_FORECAST_MAPPING` が対象。
+名前空間は `tse-ed-t` / `jpigp_cor`（TDnet Summary iXBRL）。
+
+| XBRL要素名 | DBカラム | 単位変換 |
+|---|---|---|
+| `NetSales` | `revenue` | 円 → 百万円 |
+| `OperatingIncome` | `operating_income` | 円 → 百万円 |
+| `OrdinaryIncome` | `ordinary_income` | 円 → 百万円 |
+| `ProfitAttributableToOwnersOfParent` | `net_income` | 円 → 百万円 |
+| `NetIncome` | `net_income` | 円 → 百万円 |
+| `NetIncomePerShare` | `eps` | そのまま（円/株） |
+| `DividendPerShare` | `dividend_per_share` | そのまま（円/株） |
+| IFRS系（`NetSalesIFRS`等） | 各フィールド | 円 → 百万円 |
+| US-GAAP系（`NetSalesUS`等） | 各フィールド | 円 → 百万円 |
+
+### fiscal_year判定（TDnet XBRL）
+
+`_extract_forecast_fiscal_year()` が `NextYearDuration` を含むコンテキストの `endDate` をXMLから直接パースし、
+その年部分（YYYY）を `fiscal_year` として使用する。
 
 ## マッピング追加の手順
 
