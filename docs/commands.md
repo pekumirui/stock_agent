@@ -40,6 +40,9 @@ python scripts/fetch_tdnet.py --ticker 7203,6758
 # TDnet決算短信取得（日付範囲指定）
 python scripts/fetch_tdnet.py --date-from 2024-02-01 --date-to 2024-02-05
 
+# TDnet決算短信取得（JSONキャッシュを無視して再取得）
+python scripts/fetch_tdnet.py --force
+
 # EDINETコード一括更新（初回セットアップ時に実行）
 python scripts/update_edinet_codes.py
 
