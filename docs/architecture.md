@@ -31,8 +31,9 @@ stock_agent/
 │   ├── init_companies.py            # 銘柄マスタ初期化（JPX/サンプル）
 │   ├── fetch_prices.py              # 株価取得（Yahoo Finance）
 │   ├── fetch_financials.py          # 決算取得（EDINET + XBRLP）
-│   ├── fetch_tdnet.py               # 決算短信取得（TDnet + XBRLP）
+│   ├── fetch_tdnet.py               # 決算短信取得（TDnet + XBRLP）・予想データ抽出含む
 │   ├── fetch_jquants_fins.py       # 決算取得（J-Quants API）
+│   ├── fetch_jquants_forecasts.py  # 業績予想取得（J-Quants fin-summary API）
 │   ├── update_edinet_codes.py       # EDINETコード一括更新
 │   ├── analyze_missing_edinet.py    # EDINETコード欠損分析
 │   ├── validate_schema.py           # スキーマ検証ツール
@@ -64,6 +65,7 @@ stock_agent/
 │   ├── test_fetch_financials.py     # 決算取得のテスト
 │   ├── test_fetch_tdnet.py          # TDnet取得のテスト
 │   ├── test_fetch_jquants_fins.py   # J-Quants決算取得のテスト
+│   ├── test_forecast.py             # 業績予想データ取得・保存のテスト
 │   ├── test_update_edinet_codes.py  # EDINETコード更新のテスト
 │   ├── test_analyze_missing_edinet.py # 欠損分析のテスト
 │   ├── test_financial_views.py      # YoY/QoQビューのテスト
@@ -109,6 +111,46 @@ stock_agent/
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
 | v_financials_standalone_quarter | 単独四半期算出(累積値から差分計算、`has_prev_quarter`フラグで前四半期データ有無を判定) |
+
+## 業績予想データのフロー
+
+`management_forecasts` テーブルには2つの取得経路がある。TDnet経由が優先され、J-Quantsは補完的に使用する。
+
+### 取得経路と優先度
+
+| 取得元 | スクリプト | 優先度 | 対象データ |
+|---|---|---|---|
+| TDnet決算短信 iXBRL | `fetch_tdnet.py` → `parse_ixbrl_forecast()` | 高（TDnet優先） | 通期予想（FY）・Q2半期予想 |
+| J-Quants fin-summary API | `fetch_jquants_forecasts.py` | 低（フォールバック） | 通期予想（FY）・Q2半期予想 |
+
+`insert_management_forecast()` は `SOURCE_PRIORITY` による優先度チェックを行い、低優先度ソースのデータが高優先度ソースのデータを上書きしないよう制御する。
+
+### TDnet経由のフロー
+
+```
+TDnet決算短信 ZIP
+  → fetch_tdnet.py (_process_zip_to_db)
+    → parse_ixbrl_forecast()          # iXBRLから予想コンテキスト（NextYearDuration等）を抽出
+    → _extract_forecast_fiscal_year() # NextYearDurationのendDateから予想対象年度を特定
+    → insert_management_forecast()    # management_forecastsテーブルに保存
+```
+
+### J-Quants経由のフロー
+
+```
+J-Quants fin-summary API
+  → fetch_jquants_forecasts.py
+    → map_to_forecast()               # 1行からFY通期予想・Q2半期予想のレコードを生成
+      FSales/FOP/FOdP/FNP/FEPS → FY通期予想
+      FSales2Q/FOP2Q/FOdP2Q/FNP2Q/FEPS2Q → Q2半期予想
+      EarnForecastRevision DocType → forecast_type='revised'
+    → insert_management_forecast()    # management_forecastsテーブルに保存
+```
+
+### fiscal_year判定（J-Quants）
+
+- 通期決算発表時（FY* DocType）: 来期予想のため `NxtFYEn`（来期末日）の年部分を使用
+- Q1/Q2/Q3決算発表時または予想修正: 当期予想のため `CurFYEn`（当期末日）の年部分を使用
 
 ## TDnet XBRLキャッシュの仕組み
 

@@ -61,6 +61,18 @@ python scripts/fetch_jquants_fins.py
 # J-Quants API決算取得（特定銘柄の全履歴）
 python scripts/fetch_jquants_fins.py --ticker 7203,6758
 
+# J-Quants API業績予想取得（過去7日分）
+python scripts/fetch_jquants_forecasts.py
+
+# J-Quants API業績予想取得（過去30日分）
+python scripts/fetch_jquants_forecasts.py --days 30
+
+# J-Quants API業績予想取得（特定銘柄）
+python scripts/fetch_jquants_forecasts.py --ticker 7203
+
+# J-Quants API業績予想取得（既存データも上書き）
+python scripts/fetch_jquants_forecasts.py --force
+
 # EDINET決算取得（処理済みスキップ付き）
 python scripts/fetch_financials.py --days 30
 
