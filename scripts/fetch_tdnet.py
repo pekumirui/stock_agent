@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -58,6 +59,13 @@ TDNET_XBRL_CACHE_DIR = BASE_DIR / "data" / "tdnet_xbrl_cache"
 
 # レート制限
 TDNET_REQUEST_SLEEP = 0.5  # 秒
+
+# メタデータ抽出パターン（キャッシュ再投入用）
+TICKER_RE = re.compile(r'tse-[^-]+-([0-9A-Z]{4,5}0)-')
+JP_DATE_RE = re.compile(r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日')
+ATTACHMENT_DATE_RE = re.compile(
+    r'tse-[^-]+-([0-9A-Z]{4,5}0?)-(\d{4}-\d{2}-\d{2})-\d{2}-(\d{4}-\d{2}-\d{2})'
+)
 
 # 決算期判定パターン
 FISCAL_YEAR_PATTERN = r'(\d{4})年.*?期'
@@ -171,6 +179,166 @@ def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quart
 
     last_day = calendar.monthrange(end_year, end_month)[1]
     return f"{end_year:04d}-{end_month:02d}-{last_day:02d}"
+
+
+# ============================================
+# キャッシュ再投入用メタデータ抽出
+# ============================================
+
+def _normalize_jp_date(text: str) -> Optional[str]:
+    """和文日付(2026年２月13日)をYYYY-MM-DDに変換。NFKC正規化で全角数字対応"""
+    if not text:
+        return None
+    normalized = unicodedata.normalize('NFKC', text)
+    m = JP_DATE_RE.search(normalized)
+    if not m:
+        # 既にISO形式ならそのまま返す
+        return text.strip() if re.match(r'\d{4}-\d{2}-\d{2}$', text.strip()) else None
+    y, mo, d = m.groups()
+    return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+
+
+def _get_ticker_from_namelist(namelist: list) -> Optional[str]:
+    """ZIPのnamelist内ファイル名パターンからticker抽出（展開不要で高速）"""
+    for name in namelist:
+        m = TICKER_RE.search(Path(name).name)
+        if m:
+            raw = m.group(1)  # 例: 72030, 130A0
+            return raw[:-1]   # チェックデジット除去
+    return None
+
+
+def _get_ticker_from_zip_path(zip_path: Path) -> Optional[str]:
+    """ZIPファイルパスからticker抽出（展開不要で高速フィルタ用）"""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            return _get_ticker_from_namelist(zf.namelist())
+    except (zipfile.BadZipFile, Exception):
+        return None
+
+
+def _extract_filing_date_from_namelist(namelist: list) -> Optional[str]:
+    """ZIPのnamelist内のAttachmentファイル名からfiling_date(YYYY-MM-DD)を抽出"""
+    for name in namelist:
+        m = ATTACHMENT_DATE_RE.search(name)
+        if m:
+            return m.group(3)  # filing_date
+    return None
+
+
+def extract_metadata_from_summary(summary_html: str) -> Dict[str, Any]:
+    """Summary iXBRLのHTMLからメタデータをregex抽出（bs4不使用で高速）
+
+    Returns:
+        {
+            'ticker_code': str or None,     # SecuritiesCode由来
+            'fiscal_year': str or None,     # FiscalYearEnd年部分
+            'fiscal_quarter': str or None,  # Q1-Q3 or FY
+            'fiscal_year_end': str or None, # YYYY-MM-DD
+            'announcement_date': str or None, # FilingDate ISO化
+            'document_name': str or None,   # タイトル
+        }
+    """
+    def _pick(tag_name: str) -> Optional[str]:
+        m = re.search(
+            rf'name=["\']({re.escape(tag_name)})["\'][^>]*>(.*?)</ix:(?:nonnumeric|nonfraction)>',
+            summary_html, re.IGNORECASE | re.DOTALL
+        )
+        if not m:
+            return None
+        return re.sub(r'<[^>]+>', '', m.group(2)).strip()
+
+    fy_end = _pick('tse-ed-t:FiscalYearEnd')
+    qp = _pick('tse-ed-t:QuarterlyPeriod')
+    doc = _pick('tse-ed-t:DocumentName')
+    filing = _normalize_jp_date(_pick('tse-ed-t:FilingDate'))
+    sec_code = _pick('tse-ed-t:SecuritiesCode')
+
+    # fiscal_quarter判定
+    if qp and qp.strip() in ('1', '2', '3'):
+        fq = f'Q{qp.strip()}'
+    elif doc:
+        normalized_doc = unicodedata.normalize('NFKC', doc)
+        qm = re.search(r'第([1-4])四半期', normalized_doc)
+        if qm:
+            fq = f'Q{qm.group(1)}'
+        else:
+            fq = 'FY'
+    else:
+        fq = 'FY'
+
+    # fiscal_year判定
+    fy = None
+    if fy_end and re.match(r'\d{4}-\d{2}-\d{2}$', fy_end):
+        fy = fy_end[:4]
+
+    # ticker_code: SecuritiesCodeから取得（4桁 or 5桁→末尾除去）
+    ticker = None
+    if sec_code:
+        sec_clean = sec_code.strip()
+        if len(sec_clean) == 5 and sec_clean[-1] == '0':
+            ticker = sec_clean[:-1]
+        elif len(sec_clean) == 4:
+            ticker = sec_clean
+
+    return {
+        'ticker_code': ticker,
+        'fiscal_year': fy,
+        'fiscal_quarter': fq,
+        'fiscal_year_end': fy_end,
+        'announcement_date': filing,
+        'document_name': doc,
+    }
+
+
+def _extract_metadata_from_attachment(namelist: list) -> Optional[Dict[str, Any]]:
+    """Attachmentファイル名パターンからメタデータ抽出（Summary無しZIPのフォールバック）
+
+    Attachmentファイル名例:
+    0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm
+                                ^^^^^  ^^^^^^^^^^     ^^^^^^^^^^
+                                code   fiscal_end     filing_date
+    """
+    ticker = _get_ticker_from_namelist(namelist)
+    if not ticker:
+        return None
+
+    for name in namelist:
+        m = ATTACHMENT_DATE_RE.search(name)
+        if m:
+            fiscal_end_date = m.group(2)
+            filing_date = m.group(3)
+
+            # taxonomyプレフィックスから大まかな期種判定
+            # a=annual(FY), q=quarterly(Q1-Q3), s=semi-annual(Q2)
+            taxonomy_match = re.search(r'tse-([aqs])[cn]', name)
+            if taxonomy_match:
+                prefix = taxonomy_match.group(1)
+                if prefix == 'a':
+                    fq = 'FY'
+                elif prefix == 's':
+                    fq = 'Q2'
+                else:
+                    fq = None  # 四半期だがQ何かは不明
+            else:
+                fq = None
+
+            # fiscal_year判定: FYならfiscal_end_dateの年がそのままfiscal_year
+            # 四半期/半期ではfiscal_end_dateの年≠fiscal_yearの可能性あるためNone
+            if fq == 'FY':
+                fy = fiscal_end_date[:4]
+            else:
+                fy = None
+
+            return {
+                'ticker_code': ticker,
+                'fiscal_year': fy,
+                'fiscal_quarter': fq,
+                'fiscal_year_end': None,  # Summaryが無いので不明
+                'announcement_date': filing_date,
+                'document_name': None,
+            }
+    return None
 
 
 # ============================================
@@ -392,12 +560,13 @@ class TdnetClient:
 
         return page_urls
 
-    def download_xbrl_zip(self, zip_url: str) -> Optional[bytes]:
+    def download_xbrl_zip(self, zip_url: str, announcement_date: str = None) -> Optional[bytes]:
         """
-        XBRL ZIPファイルをダウンロード（キャッシュ対応）
+        XBRL ZIPファイルをダウンロード（日付フォルダキャッシュ対応）
 
         Args:
             zip_url: ZIPファイルのURL
+            announcement_date: 発表日（YYYY-MM-DD）。指定時は日付フォルダに保存
 
         Returns:
             ZIPファイルのバイト列（失敗時はNone）
@@ -406,16 +575,30 @@ class TdnetClient:
         parsed_url = urlparse(zip_url)
         zip_filename = Path(parsed_url.path).name
 
-        # キャッシュチェック
-        cache_path = self.xbrl_cache_dir / zip_filename
-        if cache_path.exists():
-            print(f"    [CACHE] キャッシュ使用: {zip_filename}")
-            try:
-                return cache_path.read_bytes()
-            except Exception as e:
-                print(f"    [WARN] キャッシュ読み込み失敗、再ダウンロードします: {e}")
-                # キャッシュ破損時は削除して再ダウンロード
-                cache_path.unlink(missing_ok=True)
+        # キャッシュチェック: 日付フォルダ → フラット(レガシー)の順
+        cache_paths = []
+        if announcement_date:
+            cache_paths.append(self.xbrl_cache_dir / announcement_date / zip_filename)
+        cache_paths.append(self.xbrl_cache_dir / zip_filename)  # レガシーフラット
+
+        for cache_path in cache_paths:
+            if cache_path.exists():
+                print(f"    [CACHE] キャッシュ使用: {cache_path.relative_to(self.xbrl_cache_dir)}")
+                try:
+                    content = cache_path.read_bytes()
+                    # レガシーフラットキャッシュを日付フォルダに昇格
+                    if announcement_date and cache_path.parent == self.xbrl_cache_dir:
+                        dated_path = self.xbrl_cache_dir / announcement_date / zip_filename
+                        try:
+                            dated_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(cache_path), str(dated_path))
+                            print(f"    [CACHE] レガシー→日付フォルダに昇格: {dated_path.relative_to(self.xbrl_cache_dir)}")
+                        except Exception as e:
+                            print(f"    [WARN] レガシーキャッシュ昇格失敗: {e}")
+                    return content
+                except Exception as e:
+                    print(f"    [WARN] キャッシュ読み込み失敗、再ダウンロードします: {e}")
+                    cache_path.unlink(missing_ok=True)
 
         # HTTPリクエスト
         try:
@@ -424,13 +607,17 @@ class TdnetClient:
             response.raise_for_status()
             time.sleep(TDNET_REQUEST_SLEEP)
 
-            # キャッシュに保存
+            # キャッシュに保存（日付フォルダ優先）
+            if announcement_date:
+                save_path = self.xbrl_cache_dir / announcement_date / zip_filename
+            else:
+                save_path = self.xbrl_cache_dir / zip_filename
             try:
-                cache_path.write_bytes(response.content)
-                print(f"    [CACHE] 保存完了: {zip_filename}")
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path.write_bytes(response.content)
+                print(f"    [CACHE] 保存完了: {save_path.relative_to(self.xbrl_cache_dir)}")
             except Exception as e:
                 print(f"    [WARN] キャッシュ保存失敗: {e}")
-                # 保存失敗してもダウンロードは成功
 
             return response.content
         except Exception as e:
@@ -442,49 +629,8 @@ class TdnetClient:
 # メイン処理関数
 # ============================================
 
-def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]) -> bool:
-    """
-    1つの決算短信を処理
-
-    【NEW】JPXリスト外の銘柄を事前に除外
-
-    Args:
-        client: TdnetClientインスタンス
-        announcement: 決算短信情報
-
-    Returns:
-        処理成功時 True
-    """
-    ticker_code = announcement['ticker_code']
-    company_name = announcement['company_name']
-    title = announcement['title']
-    announcement_date = announcement['announcement_date']
-    announcement_time = announcement.get('announcement_time')
-    xbrl_zip_url = announcement.get('xbrl_zip_url')
-
-    # 【NEW】事前チェック: JPXリスト（companiesテーブル）に登録されているか
-    if not ticker_exists(ticker_code):
-        # ログ出力なし（統計で集計するため）
-        return False
-
-    print(f"  処理中: {ticker_code} - {company_name}")
-    print(f"    タイトル: {title}")
-
-    # 決算期を判定
-    fiscal_year, fiscal_quarter = detect_fiscal_period(title, announcement_date)
-    print(f"    決算期: {fiscal_year} {fiscal_quarter}")
-
-    # XBRL ZIP をダウンロード
-    zip_content = client.download_xbrl_zip(xbrl_zip_url)
-    if not zip_content:
-        return False
-
-    # ZIP を展開
-    extracted_paths = extract_edinet_zip(zip_content)
-    if not extracted_paths:
-        return False
-
-    # temp_dirを特定（クリーンアップ用）
+def _find_temp_dir(extracted_paths: List[Path]) -> Path:
+    """extract_edinet_zip()が作成した一時ディレクトリのルートを特定"""
     first_path = extracted_paths[0]
     temp_dir = first_path
     while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
@@ -493,9 +639,37 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
         temp_dir = first_path
         while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
             temp_dir = temp_dir.parent
+    return temp_dir
+
+
+def _process_zip_to_db(
+    zip_content: bytes, ticker_code: str, fiscal_year: str, fiscal_quarter: str,
+    title: Optional[str] = None, announcement_date: str = None, announcement_time: str = None,
+) -> bool:
+    """ZIPバイト→展開→パース→fiscal_end_date検証→DB投入の共通処理
+
+    HTML経路（process_tdnet_announcement）とキャッシュ経路（process_cached_zip）の
+    両方から呼ばれる。
+
+    Args:
+        zip_content: ZIPファイルのバイト列
+        ticker_code: 証券コード
+        fiscal_year: 決算年度
+        fiscal_quarter: 四半期（Q1/Q2/Q3/FY）
+        title: 決算短信タイトル（キャッシュ経路ではNoneの場合あり）
+        announcement_date: 発表日（YYYY-MM-DD）
+        announcement_time: 発表時刻
+
+    Returns:
+        保存成功時 True
+    """
+    extracted_paths = extract_edinet_zip(zip_content)
+    if not extracted_paths:
+        return False
+
+    temp_dir = _find_temp_dir(extracted_paths)
 
     try:
-        # XBRL を解析
         print(f"    パーサー: XBRLP (iXBRL)")
         financials = parse_ixbrl_financials(extracted_paths)
 
@@ -503,40 +677,35 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
             print(f"    [WARN] 財務データを抽出できませんでした")
             return False
 
-        # iXBRL由来のfiscal_end_dateでfiscal_yearを補正
         xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
 
-        # 【NEW】四半期の場合、タイトルから推定した期末日と検証
-        if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
+        # fiscal_end_date検証・補正
+        if fiscal_quarter in ('Q1', 'Q2', 'Q3') and title:
             title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
 
             if xbrl_fiscal_end and title_fiscal_end and xbrl_fiscal_end != title_fiscal_end:
-                # XBRL期末日とタイトル推定が不一致 → タイトル推定を優先
                 print(f"    [補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → タイトル推定={title_fiscal_end}")
                 xbrl_fiscal_end = title_fiscal_end
             elif not xbrl_fiscal_end:
-                # XBRL取得失敗 → タイトル推定を使用
                 xbrl_fiscal_end = title_fiscal_end
                 if xbrl_fiscal_end:
                     print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
-        else:
-            # FY/Q4の場合はXBRL優先（会計年度末=期末なので正確）
+        elif fiscal_quarter in ('FY', 'Q4'):
             if xbrl_fiscal_end:
                 xbrl_fiscal_year = xbrl_fiscal_end[:4]
                 if xbrl_fiscal_year != fiscal_year:
                     print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
                     fiscal_year = xbrl_fiscal_year
-            else:
-                # フォールバック: タイトルから推定
+            elif title:
                 xbrl_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
                 if xbrl_fiscal_end:
                     print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
 
+        # キャッシュ経路でtitleが無い場合: XBRLのfiscal_end_dateをそのまま使用
         if not xbrl_fiscal_end:
             print(f"    [WARN] fiscal_end_dateを特定できません: {ticker_code} {fiscal_year} {fiscal_quarter}")
-            return False  # fiscal_end_date必須のためスキップ
+            return False
 
-        # DBに保存（上書きチェックは insert_financial 内で実施）
         saved = insert_financial(
             ticker_code=ticker_code,
             fiscal_year=fiscal_year,
@@ -571,12 +740,124 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
                 print(f"    保存完了: [{ticker_code} {fiscal_year}{fiscal_quarter}] {detail}")
             return True
         else:
-            # スキップされた（EDINET データが既に存在）
             return False
 
     finally:
-        # 一時ディレクトリを確実にクリーンアップ
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]) -> bool:
+    """1つの決算短信を処理（HTML経路）
+
+    Args:
+        client: TdnetClientインスタンス
+        announcement: 決算短信情報
+
+    Returns:
+        処理成功時 True
+    """
+    ticker_code = announcement['ticker_code']
+    company_name = announcement['company_name']
+    title = announcement['title']
+    announcement_date = announcement['announcement_date']
+    announcement_time = announcement.get('announcement_time')
+    xbrl_zip_url = announcement.get('xbrl_zip_url')
+
+    if not ticker_exists(ticker_code):
+        return False
+
+    print(f"  処理中: {ticker_code} - {company_name}")
+    print(f"    タイトル: {title}")
+
+    fiscal_year, fiscal_quarter = detect_fiscal_period(title, announcement_date)
+    print(f"    決算期: {fiscal_year} {fiscal_quarter}")
+
+    zip_content = client.download_xbrl_zip(xbrl_zip_url, announcement_date=announcement_date)
+    if not zip_content:
+        return False
+
+    return _process_zip_to_db(
+        zip_content=zip_content,
+        ticker_code=ticker_code,
+        fiscal_year=fiscal_year,
+        fiscal_quarter=fiscal_quarter,
+        title=title,
+        announcement_date=announcement_date,
+        announcement_time=announcement_time,
+    )
+
+
+def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, int]) -> bool:
+    """キャッシュZIPからメタデータ抽出→パース→DB投入
+
+    Args:
+        zip_path: ZIPファイルのパス
+        announcement_date: 発表日（日付フォルダ名から確定済み）
+        stats: 統計カウンタ {'processed': N, 'skipped_not_listed': N, 'failed': N}
+
+    Returns:
+        処理成功時 True
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            namelist = zf.namelist()
+
+            # Summary iXBRLからメタデータ抽出
+            summary_files = [n for n in namelist if '/Summary/' in n and n.endswith('-ixbrl.htm')]
+            metadata = None
+
+            if summary_files:
+                summary_html = zf.read(summary_files[0]).decode('utf-8', errors='ignore')
+                metadata = extract_metadata_from_summary(summary_html)
+                # ファイル名からtickerを補完
+                if metadata and not metadata.get('ticker_code'):
+                    metadata['ticker_code'] = _get_ticker_from_namelist(namelist)
+            else:
+                # Attachmentファイル名からフォールバック抽出（Summary無し7件対応）
+                metadata = _extract_metadata_from_attachment(namelist)
+
+        if not metadata or not metadata.get('ticker_code'):
+            print(f"    [WARN] メタデータ抽出失敗: {zip_path.name}")
+            stats['failed'] = stats.get('failed', 0) + 1
+            return False
+
+        ticker_code = metadata['ticker_code']
+
+        if not ticker_exists(ticker_code):
+            stats['skipped_not_listed'] = stats.get('skipped_not_listed', 0) + 1
+            return False
+
+        fiscal_year = metadata.get('fiscal_year')
+        fiscal_quarter = metadata.get('fiscal_quarter')
+        title = metadata.get('document_name')
+
+        if not fiscal_year or not fiscal_quarter:
+            print(f"    [WARN] 決算期を特定できません: {zip_path.name} ({ticker_code})")
+            stats['failed'] = stats.get('failed', 0) + 1
+            return False
+
+        # announcement_dateはフォルダ名優先、メタデータからの値はフォールバック
+        ann_date = announcement_date or metadata.get('announcement_date')
+
+        print(f"  処理中(キャッシュ): {ticker_code} {fiscal_year}{fiscal_quarter}")
+        zip_content = zip_path.read_bytes()
+        result = _process_zip_to_db(
+            zip_content=zip_content,
+            ticker_code=ticker_code,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+            title=title,
+            announcement_date=ann_date,
+        )
+
+        if result:
+            stats['processed'] = stats.get('processed', 0) + 1
+        return result
+
+    except (zipfile.BadZipFile, Exception) as e:
+        print(f"    [ERROR] ZIP処理失敗: {zip_path.name}: {e}")
+        stats['failed'] = stats.get('failed', 0) + 1
+        return False
 
 
 def fetch_tdnet_financials(days: int = 1, tickers: list = None,
@@ -624,11 +905,39 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
 
         print("-" * 50)
 
+        cache_stats = {'processed': 0, 'skipped_not_listed': 0, 'failed': 0}
+
         # 日付ごとに処理
         for target_date in date_list:
             print(f"\n[{target_date}]")
 
-            # 決算短信一覧を取得
+            cache_date_dir = TDNET_XBRL_CACHE_DIR / target_date
+            marker = cache_date_dir / '_complete.marker'
+
+            if marker.exists():
+                # キャッシュから処理（HTML取得スキップ）
+                zip_files = sorted(cache_date_dir.glob('*.zip'))
+                if not zip_files:
+                    print("  キャッシュ(空)")
+                    continue
+
+                # 銘柄フィルタ（展開不要で高速）
+                if tickers:
+                    tickers_set = set(tickers)
+                    zip_files = [
+                        z for z in zip_files
+                        if _get_ticker_from_zip_path(z) in tickers_set
+                    ]
+
+                print(f"  キャッシュから{len(zip_files)}件処理")
+                prev_processed = cache_stats.get('processed', 0)
+                for zip_path in zip_files:
+                    process_cached_zip(zip_path, target_date, cache_stats)
+                # この日に新規処理された分だけprocessedに加算
+                processed += cache_stats.get('processed', 0) - prev_processed
+                continue
+
+            # 従来フロー: HTML発見 → XBRL取得 → パース → DB投入
             announcements = client.get_announcements(target_date)
 
             if not announcements:
@@ -643,11 +952,11 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 print(f"  フィルタ後: {len(announcements)}件")
 
             # 各適時開示を処理
+            has_failure = False
             for announcement in announcements:
                 ticker_code = announcement['ticker_code']
                 announcement_type = announcement.get('announcement_type', 'earnings')
 
-                # 【NEW】事前チェック
                 if not ticker_exists(ticker_code):
                     skipped_out_of_scope += 1
                     continue
@@ -675,12 +984,26 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 if announcement_type == 'earnings' and announcement.get('xbrl_zip_url'):
                     if process_tdnet_announcement(client, announcement):
                         processed += 1
+                    else:
+                        has_failure = True
+
+            # HTML取得が正常完了した日にマーカー作成
+            # --ticker指定時はマーカーを作成しない（部分取得のため）
+            if not has_failure and announcements and not tickers:
+                cache_date_dir.mkdir(parents=True, exist_ok=True)
+                marker.touch()
 
         log_batch_end(log_id, "success", processed)
         print("-" * 50)
         print(f"\n処理完了: 決算データ {processed}件保存, 適時開示 {announcements_saved}件保存")
+        if cache_stats.get('processed', 0) > 0:
+            print(f"  うちキャッシュ経由: {cache_stats['processed']}件")
         if skipped_out_of_scope > 0:
             print(f"JPXリスト外のためスキップ: {skipped_out_of_scope}件")
+        if cache_stats.get('skipped_not_listed', 0) > 0:
+            print(f"キャッシュ: JPXリスト外スキップ {cache_stats['skipped_not_listed']}件")
+        if cache_stats.get('failed', 0) > 0:
+            print(f"キャッシュ: 処理失敗 {cache_stats['failed']}件")
 
     except Exception as e:
         log_batch_end(log_id, "failed", processed, str(e))

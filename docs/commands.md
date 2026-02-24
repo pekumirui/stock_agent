@@ -87,6 +87,19 @@ python3 -m pytest tests/ -v --cov=scripts --cov-report=term-missing
 python3 -m pytest tests/test_db_utils.py -v
 ```
 
+## TDnet XBRLキャッシュ移行
+
+既存のフラット構造（`data/tdnet_xbrl_cache/*.zip`）を日付フォルダ構造（`YYYY-MM-DD/*.zip`）に移行する場合に使用する。
+移行後は `--days N` 実行時にキャッシュから再投入されるようになる。
+
+```bash
+# 移動先の確認（実行しない）
+python scripts/migrate_tdnet_cache_layout.py --dry-run
+
+# 実際に移行を実行
+python scripts/migrate_tdnet_cache_layout.py --execute
+```
+
 ## データ品質管理
 
 ```bash
