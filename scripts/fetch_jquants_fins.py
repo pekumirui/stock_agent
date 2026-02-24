@@ -267,7 +267,7 @@ def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
     return deduped
 
 
-def fetch_by_ticker(client, tickers: list[str]) -> int:
+def fetch_by_ticker(client, tickers: list[str], force: bool = False) -> int:
     """銘柄コード指定で全履歴を取得する。"""
     saved_count = 0
 
@@ -294,14 +294,14 @@ def fetch_by_ticker(client, tickers: list[str]) -> int:
         # 連結優先で重複排除
         df = _select_best_rows(df)
 
-        count = _process_rows(df, ticker)
+        count = _process_rows(df, ticker, force=force)
         saved_count += count
         print(f"  {ticker}: {count}件保存")
 
     return saved_count
 
 
-def fetch_by_date(client, days: int) -> int:
+def fetch_by_date(client, days: int, force: bool = False) -> int:
     """日付指定で過去N日分の開示を取得する。"""
     saved_count = 0
     today = datetime.now()
@@ -332,14 +332,14 @@ def fetch_by_date(client, days: int) -> int:
         # 連結優先で重複排除
         df = _select_best_rows(df)
 
-        count = _process_rows(df)
+        count = _process_rows(df, force=force)
         saved_count += count
         print(f"  {count}件保存")
 
     return saved_count
 
 
-def _process_rows(df: pd.DataFrame, label: str = "") -> int:
+def _process_rows(df: pd.DataFrame, label: str = "", force: bool = False) -> int:
     """DataFrameの各行をfinancials テーブルに保存する。"""
     saved = 0
     for _, row in df.iterrows():
@@ -355,7 +355,9 @@ def _process_rows(df: pd.DataFrame, label: str = "") -> int:
             continue
 
         try:
-            result = insert_financial(ticker_code, fiscal_year, fiscal_quarter, **mapped)
+            result = insert_financial(
+                ticker_code, fiscal_year, fiscal_quarter,
+                skip_priority_check=force, **mapped)
             if result:
                 saved += 1
         except Exception as e:
@@ -390,17 +392,17 @@ def main():
         if args.ticker:
             tickers = [t.strip() for t in args.ticker.split(',')]
             print(f"  モード: 銘柄指定 ({', '.join(tickers)})")
-            saved_count = fetch_by_ticker(client, tickers)
+            saved_count = fetch_by_ticker(client, tickers, force=args.force)
         else:
             print(f"  モード: 日付指定 (過去{args.days}日)")
-            saved_count = fetch_by_date(client, args.days)
+            saved_count = fetch_by_date(client, args.days, force=args.force)
 
         print(f"\n=== 完了: {saved_count}件保存 ===")
         log_batch_end(log_id, 'success', records_processed=saved_count)
 
     except Exception as e:
         print(f"\n[ERROR] バッチ失敗: {e}")
-        log_batch_end(log_id, 'error', error_message=str(e))
+        log_batch_end(log_id, 'failed', error_message=str(e))
         sys.exit(1)
 
 
