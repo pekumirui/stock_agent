@@ -37,6 +37,7 @@ stock_agent/
 │   ├── analyze_missing_edinet.py    # EDINETコード欠損分析
 │   ├── validate_schema.py           # スキーマ検証ツール
 │   ├── migrate.py                   # DBマイグレーション管理
+│   ├── migrate_tdnet_cache_layout.py # TDnet XBRLキャッシュ構造移行（フラット→日付フォルダ）
 │   ├── run_price_batch.py           # 株価取得バッチ
 │   └── run_disclosure_batch.py     # 開示データ取得バッチ（EDINET+TDnet）
 ├── web/                             # Webビューア
@@ -70,7 +71,10 @@ stock_agent/
 ├── data/                            # データキャッシュ（gitignore）
 │   ├── xbrl_cache/                  # XBRLリモートファイルキャッシュ
 │   ├── edinet_cache/                # EDINET XBRL ZIPキャッシュ
-│   ├── tdnet_xbrl_cache/            # TDnet XBRL ZIPキャッシュ
+│   ├── tdnet_xbrl_cache/            # TDnet XBRL ZIPキャッシュ（日付フォルダ構造）
+│   │   └── YYYY-MM-DD/              # 発表日フォルダ
+│   │       ├── *.zip                # XBRL ZIPファイル
+│   │       └── _complete.marker     # 当日分の取得完了マーカー
 │   └── csv/                         # CSV出力用
 ├── docs/
 │   ├── architecture.md              # アーキテクチャ（本ファイル）
@@ -105,4 +109,37 @@ stock_agent/
 | v_financials_yoy | 前年同期比較（LAGウィンドウ関数） |
 | v_financials_qoq | 前四半期比較（LAGウィンドウ関数） |
 | v_financials_standalone_quarter | 単独四半期算出(累積値から差分計算、`has_prev_quarter`フラグで前四半期データ有無を判定) |
+
+## TDnet XBRLキャッシュの仕組み
+
+`data/tdnet_xbrl_cache/` は発表日ごとのフォルダ構造で管理される。
+
+### フォルダ構造
+
+```
+tdnet_xbrl_cache/
+└── 2025-11-14/
+    ├── 12345678_0001.zip       # XBRL ZIPファイル（適時開示ID）
+    ├── 98765432_0001.zip
+    └── _complete.marker        # 当日分の取得完了マーカー
+```
+
+### `_complete.marker` の役割
+
+- HTML取得フロー（TDnet Webスクレイピング）が正常完了した日に作成される
+- `--ticker` 指定実行時（部分取得）ではマーカーは作成されない
+- `--days N` 実行時、マーカーが存在する日はHTML取得をスキップしてキャッシュからDB投入する
+
+### `--days N` 実行フロー
+
+```
+対象日ごとに:
+  _complete.marker が存在する → キャッシュ内ZIPを直接パース → DB投入（HTML取得スキップ）
+  _complete.marker が存在しない → TDnet HTMLスクレイピング → XBRL取得・保存 → DB投入 → マーカー作成
+```
+
+### 既存キャッシュの移行
+
+過去にフラット構造（`data/tdnet_xbrl_cache/*.zip`）で保存されたZIPは `migrate_tdnet_cache_layout.py` で日付フォルダに移行できる。
+移行手順は `docs/commands.md` の「TDnet XBRLキャッシュ移行」セクションを参照。
 
