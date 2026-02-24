@@ -129,18 +129,56 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
     return fiscal_year, fiscal_quarter
 
 
+def compute_fiscal_end_date(fiscal_year_end: str, fiscal_quarter: str) -> Optional[str]:
+    """
+    FY末日と四半期から各四半期の期末日を計算する。
+
+    FY末日からの逆算で各四半期の期末日を算出する。
+    - FY/Q4: 0ヶ月前（FY末そのもの）
+    - Q3: 3ヶ月前
+    - Q2: 6ヶ月前
+    - Q1: 9ヶ月前
+
+    Args:
+        fiscal_year_end: FY末日（YYYY-MM-DD形式、例: "2026-03-31"）
+        fiscal_quarter: 四半期（例: "Q1", "Q2", "Q3", "FY"）
+
+    Returns:
+        fiscal_end_date（YYYY-MM-DD形式）またはNone
+
+    Examples:
+        >>> compute_fiscal_end_date("2026-03-31", "Q3")
+        "2025-12-31"
+
+        >>> compute_fiscal_end_date("2026-03-31", "Q1")
+        "2025-06-30"
+    """
+    if not fiscal_year_end or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', fiscal_year_end):
+        return None
+
+    fy_end_year = int(fiscal_year_end[:4])
+    fy_end_month = int(fiscal_year_end[5:7])
+
+    months_before_fy = {'FY': 0, 'Q4': 0, 'Q3': 3, 'Q2': 6, 'Q1': 9}
+    mb = months_before_fy.get(fiscal_quarter)
+    if mb is None:
+        return None
+
+    # FY末月から逆算して各四半期の期末月・年を算出
+    total = fy_end_year * 12 + (fy_end_month - 1) - mb
+    end_year = total // 12
+    end_month = (total % 12) + 1
+
+    last_day = calendar.monthrange(end_year, end_month)[1]
+    return f"{end_year:04d}-{end_month:02d}-{last_day:02d}"
+
+
 def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quarter: str) -> Optional[str]:
     """
     決算短信タイトルからfiscal_end_dateを推定する（iXBRL解析失敗時のフォールバック）
 
     タイトルの「YYYY年M月期」パターンから決算期末月を抽出し、
-    fiscal_quarterに応じた期末日を計算。
-
-    計算方法: FY末からの逆算
-    - FY/Q4: 0ヶ月前（FY末そのもの）
-    - Q3: 3ヶ月前
-    - Q2: 6ヶ月前
-    - Q1: 9ヶ月前
+    compute_fiscal_end_date()でfiscal_quarterに応じた期末日を計算。
 
     Args:
         title: 決算短信タイトル（例: "2024年3月期 第1四半期決算短信"）
@@ -169,19 +207,10 @@ def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quart
 
     fy_end_year = int(m.group(1))
     fy_end_month = int(m.group(2))
+    fy_last_day = calendar.monthrange(fy_end_year, fy_end_month)[1]
+    fy_end = f"{fy_end_year:04d}-{fy_end_month:02d}-{fy_last_day:02d}"
 
-    months_before_fy = {'FY': 0, 'Q4': 0, 'Q3': 3, 'Q2': 6, 'Q1': 9}
-    mb = months_before_fy.get(fiscal_quarter)
-    if mb is None:
-        return None
-
-    # FY末月から逆算して各四半期の期末月・年を算出
-    total = fy_end_year * 12 + (fy_end_month - 1) - mb
-    end_year = total // 12
-    end_month = (total % 12) + 1
-
-    last_day = calendar.monthrange(end_year, end_month)[1]
-    return f"{end_year:04d}-{end_month:02d}-{last_day:02d}"
+    return compute_fiscal_end_date(fy_end, fiscal_quarter)
 
 
 # ============================================
@@ -695,6 +724,7 @@ def _find_temp_dir(extracted_paths: List[Path]) -> Path:
 def _process_zip_to_db(
     zip_content: bytes, ticker_code: str, fiscal_year: str, fiscal_quarter: str,
     title: Optional[str] = None, announcement_date: str = None, announcement_time: str = None,
+    fiscal_year_end: Optional[str] = None,
 ) -> bool:
     """ZIPバイト→展開→パース→fiscal_end_date検証→DB投入の共通処理
 
@@ -709,6 +739,7 @@ def _process_zip_to_db(
         title: 決算短信タイトル（キャッシュ経路ではNoneの場合あり）
         announcement_date: 発表日（YYYY-MM-DD）
         announcement_time: 発表時刻
+        fiscal_year_end: FY末日（YYYY-MM-DD形式、Summary iXBRLのtse-ed-t:FiscalYearEnd）
 
     Returns:
         保存成功時 True
@@ -730,16 +761,28 @@ def _process_zip_to_db(
         xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
 
         # fiscal_end_date検証・補正
-        if fiscal_quarter in ('Q1', 'Q2', 'Q3') and title:
-            title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+        if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
+            # フォールバック1: タイトルの「YYYY年M月期」パターンから計算
+            title_fiscal_end = None
+            if title:
+                title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
 
-            if xbrl_fiscal_end and title_fiscal_end and xbrl_fiscal_end != title_fiscal_end:
-                print(f"    [補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → タイトル推定={title_fiscal_end}")
-                xbrl_fiscal_end = title_fiscal_end
-            elif not xbrl_fiscal_end:
-                xbrl_fiscal_end = title_fiscal_end
-                if xbrl_fiscal_end:
-                    print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+            # フォールバック2: FiscalYearEnd（FY末日）+ QuarterlyPeriodから計算
+            computed_fiscal_end = None
+            if fiscal_year_end:
+                computed_fiscal_end = compute_fiscal_end_date(fiscal_year_end, fiscal_quarter)
+
+            # 補正候補: タイトル推定 > FiscalYearEnd計算 の優先度
+            corrected = title_fiscal_end or computed_fiscal_end
+
+            if xbrl_fiscal_end and corrected and xbrl_fiscal_end != corrected:
+                source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
+                print(f"    [補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → {source_label}={corrected}")
+                xbrl_fiscal_end = corrected
+            elif not xbrl_fiscal_end and corrected:
+                source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
+                xbrl_fiscal_end = corrected
+                print(f"    [補完] fiscal_end_date: {source_label}={xbrl_fiscal_end}")
         elif fiscal_quarter in ('FY', 'Q4'):
             if xbrl_fiscal_end:
                 xbrl_fiscal_year = xbrl_fiscal_end[:4]
@@ -924,6 +967,7 @@ def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, 
             fiscal_quarter=fiscal_quarter,
             title=title,
             announcement_date=ann_date,
+            fiscal_year_end=metadata.get('fiscal_year_end'),
         )
 
         if result:
