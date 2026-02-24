@@ -462,14 +462,17 @@ def insert_announcement(ticker_code: str, announcement_date: str, announcement_t
                         fiscal_quarter: str = None, document_url: str = None,
                         source: str = 'TDnet'):
     """
-    適時開示情報を挿入（重複時は無視）
+    適時開示情報を挿入（重複時は更新: UPSERT）
+
+    UNIQUE制約 (ticker_code, announcement_date, announcement_type, title) に
+    基づいて重複を検出し、既存行の可変フィールドを最新値で上書きする。
 
     Args:
         ticker_code: 証券コード
         announcement_date: 開示日（YYYY-MM-DD）
         announcement_time: 開示時刻（HH:MM）
         announcement_type: 種別（'earnings', 'revision', 'dividend', 'other'）
-        title: 開示タイトル
+        title: 開示タイトル（NOT NULL）
         fiscal_year: 決算年度
         fiscal_quarter: 四半期
         document_url: 書類URL
@@ -478,10 +481,16 @@ def insert_announcement(ticker_code: str, announcement_date: str, announcement_t
     try:
         with get_connection() as conn:
             conn.execute("""
-                INSERT OR IGNORE INTO announcements
+                INSERT INTO announcements
                 (ticker_code, announcement_date, announcement_time, announcement_type,
                  title, fiscal_year, fiscal_quarter, document_url, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ticker_code, announcement_date, announcement_type, title)
+                DO UPDATE SET
+                    announcement_time = COALESCE(excluded.announcement_time, announcements.announcement_time),
+                    fiscal_year = COALESCE(excluded.fiscal_year, announcements.fiscal_year),
+                    fiscal_quarter = COALESCE(excluded.fiscal_quarter, announcements.fiscal_quarter),
+                    document_url = COALESCE(excluded.document_url, announcements.document_url)
             """, (ticker_code, announcement_date, announcement_time, announcement_type,
                   title, fiscal_year, fiscal_quarter, document_url, source))
             conn.commit()
