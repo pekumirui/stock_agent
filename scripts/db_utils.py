@@ -494,9 +494,15 @@ def insert_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarte
                                operating_income: float = None, ordinary_income: float = None,
                                net_income: float = None, eps: float = None,
                                dividend_per_share: float = None, revision_direction: str = None,
-                               revision_reason: str = None, source: str = None):
+                               revision_reason: str = None, source: str = None,
+                               skip_priority_check: bool = False) -> bool:
     """
-    会社業績予想を挿入（重複時は更新）
+    会社業績予想を挿入（重複時は更新、データソース優先度を考慮）
+
+    上書きルール（insert_financial() と同じ優先度辞書を使用）:
+    - 低優先度ソースが高優先度データを上書きしない
+    - 同一優先度または高優先度ソースは上書き
+    - skip_priority_check=True の場合は優先度チェックをスキップ
 
     Args:
         ticker_code: 証券コード
@@ -513,9 +519,30 @@ def insert_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarte
         revision_direction: 修正方向（'up' / 'down' / None）
         revision_reason: 修正理由
         source: データソース
+        skip_priority_check: Trueなら優先度チェックをスキップして上書き
+
+    Returns:
+        bool: 保存した場合 True、スキップした場合 False
     """
     try:
         with get_connection() as conn:
+            if not skip_priority_check:
+                # 既存データの source を確認（優先度チェック）
+                cursor = conn.execute("""
+                    SELECT source FROM management_forecasts
+                    WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
+                      AND announced_date = ?
+                """, (ticker_code, fiscal_year, fiscal_quarter, announced_date))
+                existing = cursor.fetchone()
+
+                if existing:
+                    existing_priority = SOURCE_PRIORITY.get(existing['source'], 0)
+                    new_priority = SOURCE_PRIORITY.get(source, 0)
+                    if new_priority < existing_priority:
+                        print(f"    [SKIP] 予想: 優先度の高いデータが存在: {ticker_code} {fiscal_year} {fiscal_quarter} "
+                              f"(既存: {existing['source']}, 新規: {source})")
+                        return False
+
             conn.execute("""
                 INSERT INTO management_forecasts
                 (ticker_code, fiscal_year, fiscal_quarter, announced_date, forecast_type,
@@ -524,12 +551,12 @@ def insert_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarte
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ticker_code, fiscal_year, fiscal_quarter, announced_date) DO UPDATE SET
                     forecast_type = excluded.forecast_type,
-                    revenue = excluded.revenue,
-                    operating_income = excluded.operating_income,
-                    ordinary_income = excluded.ordinary_income,
-                    net_income = excluded.net_income,
-                    eps = excluded.eps,
-                    dividend_per_share = excluded.dividend_per_share,
+                    revenue = COALESCE(excluded.revenue, management_forecasts.revenue),
+                    operating_income = COALESCE(excluded.operating_income, management_forecasts.operating_income),
+                    ordinary_income = COALESCE(excluded.ordinary_income, management_forecasts.ordinary_income),
+                    net_income = COALESCE(excluded.net_income, management_forecasts.net_income),
+                    eps = COALESCE(excluded.eps, management_forecasts.eps),
+                    dividend_per_share = COALESCE(excluded.dividend_per_share, management_forecasts.dividend_per_share),
                     revision_direction = excluded.revision_direction,
                     revision_reason = excluded.revision_reason,
                     source = excluded.source
@@ -537,8 +564,10 @@ def insert_management_forecast(ticker_code: str, fiscal_year: str, fiscal_quarte
                   revenue, operating_income, ordinary_income, net_income, eps,
                   dividend_per_share, revision_direction, revision_reason, source))
             conn.commit()
+            return True
     except sqlite3.IntegrityError as e:
         print(f"    [ERROR] management_forecast挿入失敗: {ticker_code} - {e}")
+        return False
 
 
 def get_announcements_by_date(date: str, types: list = None) -> list:
