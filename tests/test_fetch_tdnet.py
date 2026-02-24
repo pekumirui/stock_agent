@@ -11,6 +11,8 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "scripts"))
 sys.path.insert(0, str(BASE_DIR / "lib"))
 
+import json
+from unittest.mock import MagicMock, patch
 from fetch_tdnet import (
     detect_fiscal_period,
     detect_fiscal_end_date_from_title,
@@ -19,9 +21,11 @@ from fetch_tdnet import (
     extract_metadata_from_summary,
     _extract_metadata_from_attachment,
     _extract_filing_date_from_namelist,
+    _pick_ix_value,
+    _load_or_fetch_announcements,
 )
 from fetch_financials import _wareki_to_seireki
-from db_utils import get_connection, insert_financial
+from db_utils import get_connection, insert_financial, insert_announcement
 
 
 class TestFiscalPeriodDetection:
@@ -610,74 +614,170 @@ class TestExtractMetadataFromSummary:
         assert meta['fiscal_quarter'] == "FY"
 
 
-class TestExtractMetadataFromAttachment:
-    """Attachmentファイル名パターンからのメタデータ抽出テスト"""
+def _make_mock_zf(dei_html: str = '') -> MagicMock:
+    """テスト用のZipFileモックを作成（DEI要素を含むiXBRL HTMLを返す）"""
+    zf = MagicMock()
+    zf.read.return_value = dei_html.encode('utf-8')
+    return zf
 
-    def test_quarterly(self):
-        """四半期レポートの抽出"""
+
+class TestExtractMetadataFromAttachment:
+    """Attachmentファイル名+iXBRL DEI要素からのメタデータ抽出テスト"""
+
+    def test_quarterly_with_dei(self):
+        """四半期レポート: DEIからQ3を正しく取得"""
         namelist = [
             'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
         assert meta['ticker_code'] == "3909"
-        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
+        assert meta['fiscal_quarter'] == "Q3"
+        assert meta['fiscal_year'] == "2026"
         assert meta['announcement_date'] == "2026-02-13"
-        assert meta['fiscal_quarter'] is None  # q=四半期だがQ何かは不明
 
-    def test_annual(self):
-        """年次レポートの抽出"""
+    def test_quarterly_q4_dei(self):
+        """Q4（12月決算企業の第4四半期）をDEIから取得"""
         namelist = [
-            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+            'XBRLData/Attachment/0101010-qcbs01-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q4</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
-        assert meta['ticker_code'] == "7856"
-        assert meta['fiscal_quarter'] == "FY"
-        assert meta['fiscal_year'] == "2025"  # FYならfiscal_end_dateの年
+        assert meta['fiscal_quarter'] == "Q4"
+        assert meta['fiscal_year'] == "2025"
 
-    def test_quarterly_fiscal_year_is_none(self):
-        """四半期ではfiscal_yearが不確定のためNone"""
-        namelist = [
-            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm'
-        ]
-        meta = _extract_metadata_from_attachment(namelist)
-        assert meta is not None
-        assert meta['fiscal_year'] is None  # 四半期ではfiscal_endから推定不可
-
-    def test_semi_annual_fiscal_year_is_none(self):
-        """半期ではfiscal_yearが不確定のためNone"""
+    def test_semi_annual_hy_dei(self):
+        """半期レポート: DEIのHYをQ2にマッピング"""
         namelist = [
             'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">HY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
-        assert meta['fiscal_year'] is None  # 半期ではfiscal_endから推定不可
+        assert meta['ticker_code'] == "9247"
+        assert meta['fiscal_quarter'] == "Q2"
+        assert meta['fiscal_year'] == "2026"
+
+    def test_annual_with_dei(self):
+        """年次レポート: DEIからFYを取得"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+        ]
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">FY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-10-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['ticker_code'] == "7856"
+        assert meta['fiscal_quarter'] == "FY"
+        assert meta['fiscal_year'] == "2025"
+
+    def test_dei_missing_fallback_annual(self):
+        """DEI欠損時: taxonomy prefix a → FY フォールバック"""
+        namelist = [
+            'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-78560-2025-10-31-02-2025-12-08-ixbrl.htm'
+        ]
+        zf = _make_mock_zf('')  # DEI要素なし
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "FY"
+        assert meta['fiscal_year'] == "2025"
+
+    def test_dei_missing_fallback_semi_annual(self):
+        """DEI欠損時: taxonomy prefix s → Q2 フォールバック"""
+        namelist = [
+            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
+        ]
+        zf = _make_mock_zf('')  # DEI要素なし
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "Q2"
 
     def test_alpha_ticker_code(self):
         """英字含む銘柄コード（130A等）のAttachmentファイル名"""
         namelist = [
             'XBRLData/Attachment/0102010-acpl01-tse-acedjpfr-130A0-2025-12-31-01-2026-02-14-ixbrl.htm'
         ]
-        meta = _extract_metadata_from_attachment(namelist)
+        dei_html = '''
+        <ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">FY</ix:nonNumeric>
+        <ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2025-12-31</ix:nonNumeric>
+        '''
+        zf = _make_mock_zf(dei_html)
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is not None
         assert meta['ticker_code'] == "130A"
-
-    def test_semi_annual(self):
-        """半期レポートの抽出"""
-        namelist = [
-            'XBRLData/Attachment/0102010-scpl15-tse-scedjpfr-92470-2025-09-30-02-2026-01-30-ixbrl.htm'
-        ]
-        meta = _extract_metadata_from_attachment(namelist)
-        assert meta is not None
-        assert meta['ticker_code'] == "9247"
-        assert meta['fiscal_quarter'] == "Q2"
 
     def test_no_match(self):
         """パターン不一致"""
         namelist = ['XBRLData/Attachment/qualitative.htm']
-        meta = _extract_metadata_from_attachment(namelist)
+        zf = _make_mock_zf('')
+        meta = _extract_metadata_from_attachment(zf, namelist)
         assert meta is None
+
+    def test_dei_spread_across_files(self):
+        """DEI要素が複数ファイルに分散している場合も集約できること"""
+        namelist = [
+            'XBRLData/Attachment/0102010-qcpl11-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm',
+            'XBRLData/Attachment/0101010-qcbs01-tse-qcedjpfr-39090-2025-12-31-01-2026-02-13-ixbrl.htm',
+        ]
+        # ファイル1: TypeOfCurrentPeriodDEIのみ、ファイル2: CurrentFiscalYearEndDateDEIのみ
+        html_pl = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>'
+        html_bs = '<ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant">2026-03-31</ix:nonNumeric>'
+        zf = MagicMock()
+        zf.read.side_effect = lambda name: {
+            namelist[0]: html_pl.encode('utf-8'),
+            namelist[1]: html_bs.encode('utf-8'),
+        }[name]
+        meta = _extract_metadata_from_attachment(zf, namelist)
+        assert meta is not None
+        assert meta['fiscal_quarter'] == "Q3"
+        assert meta['fiscal_year'] == "2026"
+
+
+class TestPickIxValue:
+    """_pick_ix_value ヘルパーのテスト"""
+
+    def test_normal(self):
+        html = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q3</ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q3'
+
+    def test_with_nested_tags(self):
+        html = '<ix:nonNumeric name="jpdei_cor:CurrentFiscalYearEndDateDEI" contextRef="FilingDateInstant"><div>2026-03-31</div></ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:CurrentFiscalYearEndDateDEI') == '2026-03-31'
+
+    def test_not_found(self):
+        html = '<ix:nonNumeric name="other:Tag">value</ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') is None
+
+    def test_empty_value(self):
+        html = '<ix:nonNumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant"></ix:nonNumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') is None
+
+    def test_single_quote(self):
+        """シングルクオートのname属性にも対応"""
+        html = "<ix:nonnumeric name='jpdei_cor:TypeOfCurrentPeriodDEI' contextRef='FilingDateInstant'>Q3</ix:nonnumeric>"
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q3'
+
+    def test_lowercase_tag(self):
+        """小文字タグ名にも対応"""
+        html = '<ix:nonnumeric name="jpdei_cor:TypeOfCurrentPeriodDEI" contextRef="FilingDateInstant">Q1</ix:nonnumeric>'
+        assert _pick_ix_value(html, 'jpdei_cor:TypeOfCurrentPeriodDEI') == 'Q1'
 
 
 class TestExtractFilingDateFromNamelist:
@@ -701,6 +801,225 @@ class TestExtractFilingDateFromNamelist:
         assert _extract_filing_date_from_namelist(namelist) == "2026-02-14"
 
 
-# TdnetClient のテストは実際のHTTPリクエストが必要なため、
-# モックを使った統合テストは別途作成することを推奨
-# ここでは基本的なロジックのユニットテストのみ実装
+class TestLoadOrFetchAnnouncements:
+    """_load_or_fetch_announcements() のテスト"""
+
+    SAMPLE_ANNOUNCEMENTS = [
+        {
+            'ticker_code': '7203',
+            'company_name': 'トヨタ自動車',
+            'title': '2026年3月期 第3四半期決算短信',
+            'announcement_date': '2026-02-14',
+            'announcement_time': '15:00',
+            'announcement_type': 'earnings',
+            'xbrl_zip_url': 'https://example.com/test.zip',
+            'document_url': 'https://example.com/test.pdf',
+        },
+        {
+            'ticker_code': '6758',
+            'company_name': 'ソニーグループ',
+            'title': '業績予想の修正に関するお知らせ',
+            'announcement_date': '2026-02-14',
+            'announcement_time': '16:00',
+            'announcement_type': 'revision',
+            'xbrl_zip_url': None,
+            'document_url': 'https://example.com/rev.pdf',
+        },
+    ]
+
+    def test_no_cache_fetches_and_saves_json(self, tmp_path):
+        """JSONキャッシュなし → client呼び出し + JSON保存"""
+        cache_dir = tmp_path / "2026-02-14"
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once_with("2026-02-14")
+        manifest = cache_dir / "_announcements.json"
+        assert manifest.exists()
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+        assert len(saved) == 2
+        assert saved[0]['ticker_code'] == '7203'
+
+    def test_cache_hit_skips_client(self, tmp_path):
+        """JSONキャッシュあり → JSON読み込み（client呼ばない）"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text(
+            json.dumps(self.SAMPLE_ANNOUNCEMENTS, ensure_ascii=False),
+            encoding="utf-8"
+        )
+        client = MagicMock()
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_not_called()
+
+    def test_corrupted_cache_refetches(self, tmp_path):
+        """JSON破損 → 削除して再取得"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text("invalid json{{{", encoding="utf-8")
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once()
+        # 破損ファイルは削除され、正しいJSONが書き直される
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+        assert len(saved) == 2
+
+    def test_force_ignores_cache(self, tmp_path):
+        """force=True → JSON無視して再取得"""
+        cache_dir = tmp_path / "2026-02-14"
+        cache_dir.mkdir()
+        manifest = cache_dir / "_announcements.json"
+        manifest.write_text(json.dumps([]), encoding="utf-8")
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(
+            client, "2026-02-14", cache_dir, force=True
+        )
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        client.get_announcements.assert_called_once()
+
+    def test_client_exception_returns_none(self, tmp_path):
+        """client例外 → None返却、JSON未作成"""
+        cache_dir = tmp_path / "2026-02-14"
+        client = MagicMock()
+        client.get_announcements.side_effect = ConnectionError("network error")
+
+        result = _load_or_fetch_announcements(client, "2026-02-14", cache_dir)
+
+        assert result is None
+        manifest = cache_dir / "_announcements.json"
+        assert not manifest.exists()
+
+    def test_empty_list_saved_as_cache_for_past_date(self, tmp_path):
+        """過去日の空リスト（開示なし日）もJSONキャッシュとして保存"""
+        cache_dir = tmp_path / "2020-01-01"
+        client = MagicMock()
+        client.get_announcements.return_value = []
+
+        result = _load_or_fetch_announcements(client, "2020-01-01", cache_dir)
+
+        assert result == []
+        manifest = cache_dir / "_announcements.json"
+        assert manifest.exists()
+        assert json.loads(manifest.read_text(encoding="utf-8")) == []
+
+    def test_today_not_cached(self, tmp_path):
+        """当日分はJSONキャッシュを作成しない（開示追加の可能性）"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        cache_dir = tmp_path / today
+        client = MagicMock()
+        client.get_announcements.return_value = self.SAMPLE_ANNOUNCEMENTS
+
+        result = _load_or_fetch_announcements(client, today, cache_dir)
+
+        assert result == self.SAMPLE_ANNOUNCEMENTS
+        manifest = cache_dir / "_announcements.json"
+        assert not manifest.exists()
+
+
+class TestInsertAnnouncementUpsert:
+    """insert_announcement() UPSERT動作のテスト"""
+
+    def test_earnings_dedup(self, test_db, sample_company):
+        """同じearnings 2回insert → 1行のみ"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        with get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM announcements WHERE ticker_code = '9999'"
+            ).fetchone()[0]
+        assert count == 1
+
+    def test_revision_dedup_null_fiscal(self, test_db, sample_company):
+        """同じrevision 2回insert（fiscal_year/quarter=NULL）→ 1行のみ"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='16:00', announcement_type='revision',
+            title='業績予想の修正に関するお知らせ',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='16:00', announcement_type='revision',
+            title='業績予想の修正に関するお知らせ',
+        )
+        with get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM announcements "
+                "WHERE ticker_code = '9999' AND announcement_type = 'revision'"
+            ).fetchone()[0]
+        assert count == 1
+
+    def test_upsert_updates_fields(self, test_db, sample_company):
+        """UPSERTでannouncement_time等が更新されること"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+        )
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:30', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+            document_url='https://example.com/updated.pdf',
+        )
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_time, document_url FROM announcements "
+                "WHERE ticker_code = '9999'"
+            ).fetchone()
+        assert row[0] == '15:30'
+        assert row[1] == 'https://example.com/updated.pdf'
+
+    def test_upsert_preserves_existing_on_null(self, test_db, sample_company):
+        """UPSERTでNULL値は既存値を上書きしない（COALESCEで保護）"""
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time='15:00', announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year='2026', fiscal_quarter='Q3',
+            document_url='https://example.com/original.pdf',
+        )
+        # 2回目はNULLで上書き試行
+        insert_announcement(
+            ticker_code='9999', announcement_date='2026-02-14',
+            announcement_time=None, announcement_type='earnings',
+            title='2026年3月期 第3四半期決算短信',
+            fiscal_year=None, fiscal_quarter=None,
+            document_url=None,
+        )
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT announcement_time, fiscal_year, fiscal_quarter, document_url "
+                "FROM announcements WHERE ticker_code = '9999'"
+            ).fetchone()
+        # 既存値が保持されること
+        assert row[0] == '15:00'
+        assert row[1] == '2026'
+        assert row[2] == 'Q3'
+        assert row[3] == 'https://example.com/original.pdf'
