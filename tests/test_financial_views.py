@@ -180,3 +180,88 @@ class TestQoQView:
 
         # Q2: 110, Q1: 100 → +10%
         assert row['revenue_qoq_pct'] == 10.0
+
+
+class TestFYQoQInViewer:
+    """通期（FY）のQoQ計算がget_viewer_data()で動作することのテスト"""
+
+    def test_fy_qoq_calculated(self, test_db):
+        """通期のQoQ（Q4単独 vs Q3単独）が計算されること"""
+        from web.services.financial_service import get_viewer_data
+
+        # announcement_dateを設定してget_viewer_dataで取得できるようにする
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE financials SET announcement_date = '2024-05-15' "
+                "WHERE ticker_code = '9999' AND fiscal_year = '2024' AND fiscal_quarter = 'FY'"
+            )
+            conn.commit()
+
+        rows = get_viewer_data('2024-05-15')
+        assert len(rows) >= 1
+
+        fy_row = [r for r in rows if r['ticker_code'] == '9999' and r['fiscal_quarter'] == 'FY'][0]
+
+        # FY累計530 - Q3累計140 = Q4単独390
+        # Q3累計140 - Q2累計130 = Q3単独10 （Q3 standalone）
+        # ※ 実際のstandalone計算はrevenue列で:
+        #   Q3 standalone = Q3(140) - Q2(130) = 10
+        #   Q4 standalone = FY(530) - Q3(140) = 390
+        #   QoQ = (390 - 10) / |10| * 100 = +3800.0%
+        assert fy_row['revenue_qoq'] is not None
+        assert fy_row['revenue_qoq'] == 3800.0
+        # 複数指標も検証
+        # operating_income: Q4単独=FY(60)-Q3(18)=42, Q3単独=Q3(18)-Q2(16)=2 → (42-2)/|2|*100=2000%
+        assert fy_row['operating_income_qoq'] == 2000.0
+        # net_income: Q4単独=FY(42)-Q3(12)=30, Q3単独=Q3(12)-Q2(11)=1 → (30-1)/|1|*100=2900%
+        assert fy_row['net_income_qoq'] == 2900.0
+
+    def test_fy_qoq_not_confused_with_q4(self, test_db):
+        """FYとQ4が共存する場合、FY行はFY由来のstandalone値を使うこと"""
+        from web.services.financial_service import get_viewer_data
+
+        # Q4レコードを追加（FYと異なるrevenue）
+        insert_financial(
+            ticker_code='9999', fiscal_year='2024', fiscal_quarter='Q4',
+            revenue=600.0, operating_income=65.0, net_income=45.0, eps=260.0,
+            gross_profit=180.0, ordinary_income=58.0,
+            fiscal_end_date='2024-03-31', source='TEST',
+        )
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE financials SET announcement_date = '2024-05-15' "
+                "WHERE ticker_code = '9999' AND fiscal_year = '2024' AND fiscal_quarter = 'FY'"
+            )
+            conn.commit()
+
+        rows = get_viewer_data('2024-05-15')
+        fy_row = [r for r in rows if r['ticker_code'] == '9999' and r['fiscal_quarter'] == 'FY'][0]
+
+        # FY由来: Q4 standalone = FY(530) - Q3(140) = 390 → QoQ = (390-10)/|10|*100 = 3800%
+        # Q4由来だと: Q4 standalone = Q4(600) - Q3(140) = 460 → QoQ = (460-10)/|10|*100 = 4500%
+        # FY由来の値が使われていることを確認
+        assert fy_row['revenue_qoq'] == 3800.0
+
+    def test_fy_qoq_without_q3_data(self, test_db):
+        """Q3データがない場合、通期のQoQはNoneであること"""
+        from web.services.financial_service import get_viewer_data
+
+        upsert_company('8888', 'QoQテスト株式会社')
+        # Q3なし、FYのみ投入
+        insert_financial(
+            ticker_code='8888', fiscal_year='2024', fiscal_quarter='FY',
+            revenue=500.0, operating_income=50.0, net_income=35.0, eps=200.0,
+            fiscal_end_date='2024-03-31', source='TEST',
+        )
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE financials SET announcement_date = '2024-05-20' "
+                "WHERE ticker_code = '8888' AND fiscal_year = '2024' AND fiscal_quarter = 'FY'"
+            )
+            conn.commit()
+
+        rows = get_viewer_data('2024-05-20')
+        fy_rows = [r for r in rows if r['ticker_code'] == '8888']
+        assert len(fy_rows) == 1
+        # Q3データがないのでQoQ計算不可
+        assert fy_rows[0]['revenue_qoq'] is None
