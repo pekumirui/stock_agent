@@ -15,7 +15,6 @@ import json
 import re
 import shutil
 import sys
-import tempfile
 import time
 import unicodedata
 import zipfile
@@ -48,6 +47,7 @@ from db_utils import (
     is_valid_ticker_code,
     ticker_exists
 )
+from path_utils import find_edinet_temp_dir
 
 
 # ============================================
@@ -709,18 +709,6 @@ class TdnetClient:
 # メイン処理関数
 # ============================================
 
-def _find_temp_dir(extracted_paths: List[Path]) -> Path:
-    """extract_edinet_zip()が作成した一時ディレクトリのルートを特定"""
-    first_path = extracted_paths[0]
-    temp_dir = first_path
-    while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = temp_dir.parent
-    if not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = first_path
-        while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
-            temp_dir = temp_dir.parent
-    return temp_dir
-
 
 def _process_zip_to_db(
     zip_content: bytes, ticker_code: str, fiscal_year: str, fiscal_quarter: str,
@@ -749,7 +737,7 @@ def _process_zip_to_db(
     if not extracted_paths:
         return False
 
-    temp_dir = _find_temp_dir(extracted_paths)
+    temp_dir = find_edinet_temp_dir(extracted_paths)
 
     try:
         print(f"    パーサー: XBRLP (iXBRL)")

@@ -42,6 +42,7 @@ from db_utils import (
     log_batch_start, log_batch_end,
     get_edinet_ticker_map, get_processed_doc_ids
 )
+from path_utils import find_edinet_temp_dir
 
 
 # EDINET API エンドポイント
@@ -1023,16 +1024,7 @@ def process_document(client: EdinetClient, doc_info: dict,
         return False
 
     # temp_dirを特定（クリーンアップ用）
-    # extracted_pathsはリスト、最初の要素からtemp_dirを特定
-    first_path = extracted_paths[0]
-    temp_dir = first_path
-    while temp_dir.parent != temp_dir and not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = temp_dir.parent
-    # edinet_プレフィックスが見つからない場合はfirst_pathの最上位を使う
-    if not str(temp_dir.name).startswith("edinet_"):
-        temp_dir = first_path
-        while temp_dir.parent != temp_dir and temp_dir.parent != Path(tempfile.gettempdir()):
-            temp_dir = temp_dir.parent
+    temp_dir = find_edinet_temp_dir(extracted_paths)
 
     try:
         # パース方法を判定
