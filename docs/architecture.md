@@ -35,8 +35,6 @@ stock_agent/
 │   ├── fetch_jquants_fins.py       # 決算取得（J-Quants API）
 │   ├── fetch_jquants_forecasts.py  # 業績予想取得（J-Quants fin-summary API）
 │   ├── update_edinet_codes.py       # EDINETコード一括更新
-│   ├── analyze_missing_edinet.py    # EDINETコード欠損分析
-│   ├── validate_schema.py           # スキーマ検証ツール
 │   ├── migrate.py                   # DBマイグレーション管理
 │   ├── migrate_tdnet_cache_layout.py # TDnet XBRLキャッシュ構造移行（フラット→日付フォルダ）
 │   ├── run_price_batch.py           # 株価取得バッチ
@@ -67,7 +65,6 @@ stock_agent/
 │   ├── test_fetch_jquants_fins.py   # J-Quants決算取得のテスト
 │   ├── test_forecast.py             # 業績予想データ取得・保存のテスト
 │   ├── test_update_edinet_codes.py  # EDINETコード更新のテスト
-│   ├── test_analyze_missing_edinet.py # 欠損分析のテスト
 │   ├── test_financial_views.py      # YoY/QoQビューのテスト
 │   └── test_migrations.py           # マイグレーションのテスト
 ├── data/                            # データキャッシュ（gitignore）
