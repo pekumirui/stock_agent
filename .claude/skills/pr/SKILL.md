@@ -7,7 +7,6 @@ description: Use when changes are ready for review - creates a pull request afte
 pull-request-creatorサブエージェントを使用してプルリクエストを作成してください。
 
 ## PR作成前チェック
-- テストが通っていること（`venv/bin/python -m pytest`）
 - ドキュメント更新が必要なら先にコミット済みであること
 - CLAUDE.md や rules/ のみの変更はPR不要（直接mainにコミット可）
 
