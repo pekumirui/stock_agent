@@ -839,6 +839,11 @@ def _process_zip_to_db(
             forecasts = parse_ixbrl_forecast(extracted_paths)
             if forecasts:
                 forecast_fy = _extract_forecast_fiscal_year(extracted_paths)
+                if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
+                    # Q1-Q3: タイトル判定済み年度を信頼（XBRL抽出が不一致なら補正）
+                    if forecast_fy and forecast_fy != fiscal_year:
+                        print(f"    [補正] 予想年度: XBRL={forecast_fy} → タイトル={fiscal_year}")
+                    forecast_fy = fiscal_year
                 if forecast_fy:
                     for quarter, data in forecasts.items():
                         if any(v is not None for v in data.values()):

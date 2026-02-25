@@ -230,6 +230,7 @@ XBRL_FORECAST_MAPPING = {
     # IFRS系
     'NetSalesIFRS': 'revenue',
     'OperatingRevenuesIFRS': 'revenue',
+    'SalesIFRS': 'revenue',                        # IFRS売上高（tse-ed-t）- TDnet短信予想
     'OperatingIncomeIFRS': 'operating_income',
     'ProfitBeforeTaxIFRS': 'ordinary_income',
     'ProfitIFRS': 'net_income',
@@ -264,22 +265,30 @@ def _is_forecast_context(context_ref: str):
     判定ロジック:
         1. ForecastMember を含まない → 対象外
         2. UpperMember または LowerMember を含む → 対象外（中心値のみ採用）
-        3. NextYear または NextAccumulatedQ2 で始まるDurationでない → 対象外（前期等を除外）
-        4. NextAccumulatedQ2 を含む → Q2半期予想
+        3. NextYear / NextAccumulatedQ2 / CurrentYear / CurrentAccumulatedQ2 のいずれのDurationプレフィックスでもない → 対象外
+        4. NextAccumulatedQ2 または CurrentAccumulatedQ2 を含む → Q2半期予想
         5. SecondQuarterMember等の配当四半期コンテキストは対象外
-        6. それ以外（NextYearDuration + ForecastMember）→ FY通期予想
+        6. それ以外（NextYearDuration / CurrentYearDuration + ForecastMember）→ FY通期予想
     """
     if 'ForecastMember' not in context_ref:
         return None, False
     if 'UpperMember' in context_ref or 'LowerMember' in context_ref:
         return None, False
 
-    # 対象は NextYear または NextAccumulatedQ2 を含むコンテキストのみ
-    if 'NextYear' not in context_ref and 'NextAccumulatedQ2' not in context_ref:
+    # 対象は許可済みの期間プレフィックスのみ（Next2Year等の誤マッチ防止）
+    # FY決算発表 → NextYearDuration（来期予想）
+    # Q1-Q3決算短信 → CurrentYearDuration（当期通期予想）
+    _ALLOWED_FORECAST_PERIODS = (
+        'NextYearDuration',
+        'NextAccumulatedQ2Duration',
+        'CurrentYearDuration',
+        'CurrentAccumulatedQ2Duration',
+    )
+    if not context_ref.startswith(_ALLOWED_FORECAST_PERIODS):
         return None, False
 
     # Q2半期予想
-    if 'NextAccumulatedQ2' in context_ref:
+    if context_ref.startswith(('NextAccumulatedQ2Duration', 'CurrentAccumulatedQ2Duration')):
         return 'Q2', True
 
     # FY通期予想: AnnualMember付き、または四半期指定なし
@@ -694,11 +703,12 @@ def parse_ixbrl_financials(ixbrl_paths) -> Dict[str, Any]:
 
 
 def _extract_forecast_fiscal_year(ixbrl_paths: list) -> Optional[str]:
-    """iXBRLのContext要素からNextYearDurationの期末日を抽出し、予想対象の年度を返す。
+    """iXBRLのContext要素から予想対象の年度を抽出する。
 
-    NextYearDuration を含むコンテキストの endDate を取得し、
+    NextYearDuration / CurrentYearDuration を含む予想コンテキスト
+    （ForecastMember必須）の endDate を取得し、
     その年を fiscal_year 文字列として返す。
-    scenario付き・なし問わず NextYearDuration の endDate を探す。
+    NextYear を優先し、なければ CurrentYear（Q1-Q3短信）にフォールバックする。
 
     Args:
         ixbrl_paths: iXBRLファイルのパスリスト
@@ -708,7 +718,11 @@ def _extract_forecast_fiscal_year(ixbrl_paths: list) -> Optional[str]:
     """
     for ixbrl_path in ixbrl_paths:
         xbrli_ns = None
-        found_end_date = None
+        # 4バケット: NextYear / NextQ2 / CurrentYear / CurrentQ2 を個別管理
+        found_next_year = None
+        found_next_q2 = None
+        found_current_year = None
+        found_current_q2 = None
 
         for event, elem in ET.iterparse(str(ixbrl_path), events=["start-ns", "end"]):
             if event == "start-ns":
@@ -719,21 +733,37 @@ def _extract_forecast_fiscal_year(ixbrl_paths: list) -> Optional[str]:
                 if elem.tag != f"{{{xbrli_ns}}}context":
                     continue
                 ctx_id = elem.get("id", "")
-                is_next_year = "NextYear" in ctx_id and "Duration" in ctx_id
-                is_next_q2 = "NextAccumulatedQ2" in ctx_id and "Duration" in ctx_id
-                if not (is_next_year or is_next_q2):
+                # ForecastMember + Duration を含むコンテキストのみ対象
+                if "ForecastMember" not in ctx_id or "Duration" not in ctx_id:
                     continue
                 period = elem.find(f"{{{xbrli_ns}}}period")
                 if period is None:
                     continue
                 end_date = period.find(f"{{{xbrli_ns}}}endDate")
-                if end_date is not None and end_date.text:
-                    found_end_date = end_date.text
-                    break  # 最初に見つかったものを採用
+                if end_date is None or not end_date.text:
+                    continue
+                date_text = end_date.text
+                # startswith で厳密にバケット振り分け（順序重要: Q2を先に判定）
+                if ctx_id.startswith("NextAccumulatedQ2Duration"):
+                    if not found_next_q2:
+                        found_next_q2 = date_text
+                elif ctx_id.startswith("NextYearDuration"):
+                    if not found_next_year:
+                        found_next_year = date_text
+                elif ctx_id.startswith("CurrentAccumulatedQ2Duration"):
+                    if not found_current_q2:
+                        found_current_q2 = date_text
+                elif ctx_id.startswith("CurrentYearDuration"):
+                    if not found_current_year:
+                        found_current_year = date_text
+                if found_next_year:
+                    break  # NextYearDuration = 最優先、早期終了
 
-        if found_end_date:
-            # endDate の年部分を返す（例: "2026-03-31" → "2026"）
-            return found_end_date[:4]
+        # 優先順位: NextYear > CurrentYear > NextQ2 > CurrentQ2
+        # Q2 endDateは年度末ではないため FY/CurrentYear を優先
+        best_date = found_next_year or found_current_year or found_next_q2 or found_current_q2
+        if best_date:
+            return best_date[:4]
 
     return None
 
