@@ -45,7 +45,7 @@ from db_utils import (
     insert_announcement,
     log_batch_start, log_batch_end,
     is_valid_ticker_code,
-    ticker_exists
+    get_all_tickers,
 )
 from path_utils import find_edinet_temp_dir
 
@@ -859,7 +859,8 @@ def _process_zip_to_db(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]) -> bool:
+def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any],
+                               valid_tickers: set = None) -> bool:
     """1つの決算短信を処理（HTML経路）
 
     Args:
@@ -876,7 +877,7 @@ def process_tdnet_announcement(client: TdnetClient, announcement: Dict[str, Any]
     announcement_time = announcement.get('announcement_time')
     xbrl_zip_url = announcement.get('xbrl_zip_url')
 
-    if not ticker_exists(ticker_code):
+    if valid_tickers is not None and ticker_code not in valid_tickers:
         return False
 
     print(f"  処理中: {ticker_code} - {company_name}")
@@ -936,7 +937,8 @@ def _load_or_fetch_announcements(
     return announcements
 
 
-def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, int]) -> bool:
+def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, int],
+                       valid_tickers: set = None) -> bool:
     """キャッシュZIPからメタデータ抽出→パース→DB投入
 
     Args:
@@ -972,7 +974,7 @@ def process_cached_zip(zip_path: Path, announcement_date: str, stats: Dict[str, 
 
         ticker_code = metadata['ticker_code']
 
-        if not ticker_exists(ticker_code):
+        if valid_tickers is not None and ticker_code not in valid_tickers:
             stats['skipped_not_listed'] = stats.get('skipped_not_listed', 0) + 1
             return False
 
@@ -1026,8 +1028,9 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
     log_id = log_batch_start("fetch_tdnet")
     processed = 0
     announcements_saved = 0
-    skipped_out_of_scope = 0  # 【NEW】JPXリスト外のスキップ件数
+    skipped_out_of_scope = 0  # JPXリスト外のスキップ件数
 
+    valid_tickers = set(get_all_tickers(active_only=False))
     client = TdnetClient()
 
     print(f"TDnet決算短信取得開始")
@@ -1080,7 +1083,8 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                     print(f"  HTML取得失敗、キャッシュZIPから{len(zip_files)}件処理")
                     prev = cache_stats.get('processed', 0)
                     for zip_path in zip_files:
-                        process_cached_zip(zip_path, target_date, cache_stats)
+                        process_cached_zip(zip_path, target_date, cache_stats,
+                                           valid_tickers=valid_tickers)
                     processed += cache_stats.get('processed', 0) - prev
                 continue
 
@@ -1100,7 +1104,7 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 ticker_code = announcement['ticker_code']
                 announcement_type = announcement.get('announcement_type', 'earnings')
 
-                if not ticker_exists(ticker_code):
+                if ticker_code not in valid_tickers:
                     skipped_out_of_scope += 1
                     continue
 
@@ -1127,7 +1131,8 @@ def fetch_tdnet_financials(days: int = 1, tickers: list = None,
                 # download_xbrl_zip()が既存ZIPをキャッシュヒットするため、
                 # JSONキャッシュ経由でもHTTP取得は発生しない
                 if announcement_type == 'earnings' and announcement.get('xbrl_zip_url'):
-                    if process_tdnet_announcement(client, announcement):
+                    if process_tdnet_announcement(client, announcement,
+                                                   valid_tickers=valid_tickers):
                         processed += 1
 
         log_batch_end(log_id, "success", processed)
