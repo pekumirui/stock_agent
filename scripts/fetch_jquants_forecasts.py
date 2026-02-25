@@ -28,19 +28,19 @@ BASE_DIR = Path(__file__).parent.parent
 from db_utils import (
     get_all_tickers, insert_management_forecast,
     log_batch_start, log_batch_end,
-    ticker_exists,
+)
+from env_utils import load_env
+from jquants_common import (
+    QUARTER_PREFIX,
+    detect_quarter,
+    to_million,
+    to_float,
+    format_date,
+    fiscal_year_from_fy_end,
 )
 
 # Lightプラン: 60件/分 → 安全マージンとして1.5秒間隔
 API_SLEEP_SEC = 1.5
-
-# DocType → fiscal_quarter マッピング（実績と同じ）
-QUARTER_PREFIX = {
-    'FY': 'FY',
-    '1Q': 'Q1',
-    '2Q': 'Q2',
-    '3Q': 'Q3',
-}
 
 # 業績予想修正の DocType パターン
 FORECAST_REVISION_DOC_TYPES = {
@@ -75,37 +75,6 @@ Q2_FORECAST_FIELDS = {
 }
 
 
-def _load_env():
-    """プロジェクトルートの.envファイルから環境変数を読み込む"""
-    env_path = BASE_DIR / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, _, value = line.partition('=')
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                os.environ.setdefault(key, value)
-
-
-def _detect_quarter(doc_type: str) -> Optional[str]:
-    """DocTypeからfiscal_quarterを判定する。
-
-    Args:
-        doc_type: J-Quants DocType (例: 'FYFinancialStatements_Consolidated_IFRS')
-
-    Returns:
-        'FY', 'Q1', 'Q2', 'Q3' または None（対象外）
-    """
-    for prefix, quarter in QUARTER_PREFIX.items():
-        if doc_type.startswith(prefix):
-            return quarter
-    return None
-
 
 def _is_target_row(doc_type: str) -> bool:
     """対象レコードかどうか判定する。
@@ -121,60 +90,6 @@ def _is_target_row(doc_type: str) -> bool:
     # 決算短信（予想フィールドを含む）
     return 'FinancialStatements' in doc_type
 
-
-def _to_million(value) -> Optional[float]:
-    """円単位の値を百万円単位に変換する。None/NaN/空文字はNoneを返す。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        try:
-            value = float(value)
-        except (ValueError, TypeError):
-            return None
-    if pd.isna(value):
-        return None
-    return float(value) / 1_000_000
-
-
-def _to_float(value) -> Optional[float]:
-    """値をfloatに変換する。None/NaN/空文字はNoneを返す。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
-    if pd.isna(value):
-        return None
-    return float(value)
-
-
-def _format_date(value) -> Optional[str]:
-    """pandas Timestamp/datetime/文字列をYYYY-MM-DD形式にする。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        return value[:10]
-    if isinstance(value, (pd.Timestamp, datetime)):
-        if pd.isna(value):
-            return None
-        return value.strftime('%Y-%m-%d')
-    return None
-
-
-def _fiscal_year_from_fy_end(fy_end) -> Optional[str]:
-    """期末日（YYYY-MM-DD）からfiscal_yearを抽出する。"""
-    date_str = _format_date(fy_end)
-    if date_str is None:
-        return None
-    return date_str[:4]
 
 
 def map_to_forecast(row: dict) -> list:
@@ -204,7 +119,7 @@ def map_to_forecast(row: dict) -> list:
     if not ticker_code:
         return []
 
-    announced_date = _format_date(row.get('DiscDate'))
+    announced_date = format_date(row.get('DiscDate'))
     if not announced_date:
         return []
 
@@ -215,14 +130,14 @@ def map_to_forecast(row: dict) -> list:
     # - FY決算発表時（FY*): 来期予想 → NxtFYEn使用
     # - Q1/Q2/Q3決算発表時: 当期予想 → CurFYEn使用
     # - EarnForecastRevision: 当期予想修正 → CurFYEn使用
-    fiscal_quarter_of_doc = _detect_quarter(doc_type)
+    fiscal_quarter_of_doc = detect_quarter(doc_type)
     if fiscal_quarter_of_doc == 'FY' and doc_type not in FORECAST_REVISION_DOC_TYPES:
         # 通期決算発表時: 来期予想 → NxtFYEn
-        fiscal_year_fy = _fiscal_year_from_fy_end(row.get('NxtFYEn'))
+        fiscal_year_fy = fiscal_year_from_fy_end(row.get('NxtFYEn'))
         fiscal_year_q2 = fiscal_year_fy  # Q2半期予想も来期が対象
     else:
         # Q1/Q2/Q3決算発表時または予想修正: 当期予想 → CurFYEn
-        fiscal_year_fy = _fiscal_year_from_fy_end(row.get('CurFYEn'))
+        fiscal_year_fy = fiscal_year_from_fy_end(row.get('CurFYEn'))
         fiscal_year_q2 = fiscal_year_fy
 
     results = []
@@ -233,9 +148,9 @@ def map_to_forecast(row: dict) -> list:
         for field, db_col in FY_FORECAST_FIELDS.items():
             val = row.get(field)
             if db_col in ('eps', 'dividend_per_share'):
-                converted = _to_float(val)
+                converted = to_float(val)
             else:
-                converted = _to_million(val)
+                converted = to_million(val)
             if converted is not None:
                 fy_data[db_col] = converted
 
@@ -256,9 +171,9 @@ def map_to_forecast(row: dict) -> list:
         for field, db_col in Q2_FORECAST_FIELDS.items():
             val = row.get(field)
             if db_col == 'eps':
-                converted = _to_float(val)
+                converted = to_float(val)
             else:
-                converted = _to_million(val)
+                converted = to_million(val)
             if converted is not None:
                 q2_data[db_col] = converted
 
@@ -276,12 +191,14 @@ def map_to_forecast(row: dict) -> list:
     return results
 
 
-def _process_rows(df: pd.DataFrame, force: bool = False) -> int:
+def _process_rows(df: pd.DataFrame, force: bool = False,
+                  valid_tickers: set = None) -> int:
     """DataFrameの各行をmanagement_forecastsテーブルに保存する。
 
     Args:
         df: J-Quants fin-summary DataFrame
         force: Trueなら優先度チェックをスキップして上書き
+        valid_tickers: 有効な銘柄コードのSet（Noneならチェックスキップ）
 
     Returns:
         保存件数
@@ -297,7 +214,7 @@ def _process_rows(df: pd.DataFrame, force: bool = False) -> int:
             forecast_type = mapped.pop('forecast_type')
             source = mapped.pop('source')
 
-            if not ticker_exists(ticker_code):
+            if valid_tickers is not None and ticker_code not in valid_tickers:
                 continue
 
             try:
@@ -319,13 +236,15 @@ def _process_rows(df: pd.DataFrame, force: bool = False) -> int:
     return saved
 
 
-def fetch_by_ticker(client, tickers: list, force: bool = False) -> int:
+def fetch_by_ticker(client, tickers: list, force: bool = False,
+                    valid_tickers: set = None) -> int:
     """銘柄コード指定で全履歴を取得する。
 
     Args:
         client: jquantsapi.ClientV2インスタンス
         tickers: 証券コードのリスト
         force: Trueなら優先度チェックをスキップして上書き
+        valid_tickers: 有効な銘柄コードのSet
 
     Returns:
         保存件数
@@ -351,20 +270,22 @@ def fetch_by_ticker(client, tickers: list, force: bool = False) -> int:
             print("  対象データなし")
             continue
 
-        count = _process_rows(df, force=force)
+        count = _process_rows(df, force=force, valid_tickers=valid_tickers)
         saved_count += count
         print(f"  {ticker}: {count}件保存")
 
     return saved_count
 
 
-def fetch_by_date(client, days: int, force: bool = False) -> int:
+def fetch_by_date(client, days: int, force: bool = False,
+                  valid_tickers: set = None) -> int:
     """日付指定で過去N日分の開示を取得する。
 
     Args:
         client: jquantsapi.ClientV2インスタンス
         days: 過去何日分を取得するか
         force: Trueなら優先度チェックをスキップして上書き
+        valid_tickers: 有効な銘柄コードのSet
 
     Returns:
         保存件数
@@ -394,7 +315,7 @@ def fetch_by_date(client, days: int, force: bool = False) -> int:
             print("  対象データなし")
             continue
 
-        count = _process_rows(df, force=force)
+        count = _process_rows(df, force=force, valid_tickers=valid_tickers)
         saved_count += count
         print(f"  {count}件保存")
 
@@ -402,7 +323,7 @@ def fetch_by_date(client, days: int, force: bool = False) -> int:
 
 
 def main():
-    _load_env()
+    load_env()
 
     parser = argparse.ArgumentParser(description='J-Quants APIから業績予想データを取得')
     parser.add_argument('--days', type=int, default=7, help='過去N日分を取得（デフォルト: 7）')
@@ -419,6 +340,8 @@ def main():
         print("  .env に JQUANTS_API_KEY を設定してください")
         sys.exit(1)
 
+    valid_tickers = set(get_all_tickers(active_only=False))
+
     log_id = log_batch_start('fetch_jquants_forecasts')
     print(f"=== J-Quants 業績予想データ取得開始 ===")
     print(f"  日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -427,10 +350,12 @@ def main():
         if args.ticker:
             tickers = [t.strip() for t in args.ticker.split(',')]
             print(f"  モード: 銘柄指定 ({', '.join(tickers)})")
-            saved_count = fetch_by_ticker(client, tickers, force=args.force)
+            saved_count = fetch_by_ticker(client, tickers, force=args.force,
+                                          valid_tickers=valid_tickers)
         else:
             print(f"  モード: 日付指定 (過去{args.days}日)")
-            saved_count = fetch_by_date(client, args.days, force=args.force)
+            saved_count = fetch_by_date(client, args.days, force=args.force,
+                                        valid_tickers=valid_tickers)
 
         print(f"\n=== 完了: {saved_count}件保存 ===")
         log_batch_end(log_id, 'success', records_processed=saved_count)

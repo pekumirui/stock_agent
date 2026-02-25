@@ -71,6 +71,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ env.VM_USER }}@${{ env.VM_HOST }} << 'EOF'
+          set -e
           chmod +x ${{ env.DEPLOY_PATH }}/infra/cleanup_logs.sh
           crontab ${{ env.DEPLOY_PATH }}/infra/crontab
           echo "Crontab applied:"

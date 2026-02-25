@@ -1,0 +1,2 @@
+# crontabファイルは必ずLF改行を維持する
+infra/crontab text eol=lf

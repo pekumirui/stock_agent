@@ -28,19 +28,19 @@ BASE_DIR = Path(__file__).parent.parent
 from db_utils import (
     get_all_tickers, insert_financial,
     log_batch_start, log_batch_end,
-    ticker_exists,
+)
+from env_utils import load_env
+from jquants_common import (
+    QUARTER_PREFIX,
+    detect_quarter,
+    to_million,
+    to_float,
+    format_date,
+    fiscal_year_from_fy_end,
 )
 
 # Lightプラン: 60件/分 → 安全マージンとして1.5秒間隔
 API_SLEEP_SEC = 1.5
-
-# DocType → fiscal_quarter マッピング
-QUARTER_PREFIX = {
-    'FY': 'FY',
-    '1Q': 'Q1',
-    '2Q': 'Q2',
-    '3Q': 'Q3',
-}
 
 # 除外する DocType パターン
 EXCLUDED_DOC_TYPES = {
@@ -49,38 +49,6 @@ EXCLUDED_DOC_TYPES = {
     'REITDividendForecastRevision',
     'REITEarnForecastRevision',
 }
-
-
-def _load_env():
-    """プロジェクトルートの.envファイルから環境変数を読み込む"""
-    env_path = BASE_DIR / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, _, value = line.partition('=')
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                os.environ.setdefault(key, value)
-
-
-def _detect_quarter(doc_type: str) -> Optional[str]:
-    """DocTypeからfiscal_quarterを判定する。
-
-    Args:
-        doc_type: J-Quants DocType (例: 'FYFinancialStatements_Consolidated_IFRS')
-
-    Returns:
-        'FY', 'Q1', 'Q2', 'Q3' または None（対象外）
-    """
-    for prefix, quarter in QUARTER_PREFIX.items():
-        if doc_type.startswith(prefix):
-            return quarter
-    return None
 
 
 def _is_target_row(doc_type: str) -> bool:
@@ -99,53 +67,6 @@ def _is_consolidated(doc_type: str) -> bool:
     return '_Consolidated_' in doc_type
 
 
-def _to_million(value) -> Optional[float]:
-    """円単位の値を百万円単位に変換する。None/NaN/空文字はNoneを返す。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        try:
-            value = float(value)
-        except (ValueError, TypeError):
-            return None
-    if pd.isna(value):
-        return None
-    return float(value) / 1_000_000
-
-
-def _to_float(value) -> Optional[float]:
-    """値をfloatに変換する。None/NaN/空文字はNoneを返す。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
-    if pd.isna(value):
-        return None
-    return float(value)
-
-
-def _format_date(value) -> Optional[str]:
-    """pandas Timestamp/datetime/文字列をYYYY-MM-DD形式にする。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == '':
-            return None
-        return value[:10]
-    if isinstance(value, (pd.Timestamp, datetime)):
-        if pd.isna(value):
-            return None
-        return value.strftime('%Y-%m-%d')
-    return None
-
-
 def _format_time(value) -> Optional[str]:
     """DiscTime値をHH:MM形式にする。"""
     if value is None:
@@ -158,13 +79,6 @@ def _format_time(value) -> Optional[str]:
         return s[:5]
     return s
 
-
-def _fiscal_year_from_fy_end(fy_end) -> Optional[str]:
-    """CurFYEn（決算期末日）からfiscal_yearを抽出する。"""
-    date_str = _format_date(fy_end)
-    if date_str is None:
-        return None
-    return date_str[:4]
 
 
 def map_to_financial(row: dict) -> Optional[dict]:
@@ -183,7 +97,7 @@ def map_to_financial(row: dict) -> Optional[dict]:
         return None
 
     # fiscal_quarter判定
-    fiscal_quarter = _detect_quarter(doc_type)
+    fiscal_quarter = detect_quarter(doc_type)
     if fiscal_quarter is None:
         return None
 
@@ -198,7 +112,7 @@ def map_to_financial(row: dict) -> Optional[dict]:
         return None
 
     # fiscal_year
-    fiscal_year = _fiscal_year_from_fy_end(row.get('CurFYEn'))
+    fiscal_year = fiscal_year_from_fy_end(row.get('CurFYEn'))
     if fiscal_year is None:
         return None
 
@@ -207,14 +121,14 @@ def map_to_financial(row: dict) -> Optional[dict]:
         'ticker_code': ticker_code,
         'fiscal_year': fiscal_year,
         'fiscal_quarter': fiscal_quarter,
-        'fiscal_end_date': _format_date(row.get('CurPerEn')),
-        'announcement_date': _format_date(row.get('DiscDate')),
+        'fiscal_end_date': format_date(row.get('CurPerEn')),
+        'announcement_date': format_date(row.get('DiscDate')),
         'announcement_time': _format_time(row.get('DiscTime')),
-        'revenue': _to_million(row.get('Sales')),
-        'operating_income': _to_million(row.get('OP')),
-        'ordinary_income': _to_million(row.get('OdP')),
-        'net_income': _to_million(row.get('NP')),
-        'eps': _to_float(row.get('EPS')),
+        'revenue': to_million(row.get('Sales')),
+        'operating_income': to_million(row.get('OP')),
+        'ordinary_income': to_million(row.get('OdP')),
+        'net_income': to_million(row.get('NP')),
+        'eps': to_float(row.get('EPS')),
         'source': 'JQuants',
     }
 
@@ -231,7 +145,7 @@ def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     # quarter列を追加
     df = df.copy()
-    df['_quarter'] = df['DocType'].apply(_detect_quarter)
+    df['_quarter'] = df['DocType'].apply(detect_quarter)
     df['_is_consolidated'] = df['DocType'].apply(_is_consolidated)
 
     # 連結フラグ降順（True=1 > False=0）、DiscNo降順でソート
@@ -251,7 +165,7 @@ def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     # CurFYEnをグループキーに使用（日付文字列に変換）
-    df['_fy_key'] = df['CurFYEn'].apply(_format_date)
+    df['_fy_key'] = df['CurFYEn'].apply(format_date)
 
     # 同一 (Code, _fy_key, _quarter) で最初の行を取る（最新DiscNo = 最新の値）
     group_keys = ['Code', '_fy_key', '_quarter']
@@ -267,7 +181,8 @@ def _select_best_rows(df: pd.DataFrame) -> pd.DataFrame:
     return deduped
 
 
-def fetch_by_ticker(client, tickers: list[str], force: bool = False) -> int:
+def fetch_by_ticker(client, tickers: list[str], force: bool = False,
+                    valid_tickers: set = None) -> int:
     """銘柄コード指定で全履歴を取得する。"""
     saved_count = 0
 
@@ -294,14 +209,15 @@ def fetch_by_ticker(client, tickers: list[str], force: bool = False) -> int:
         # 連結優先で重複排除
         df = _select_best_rows(df)
 
-        count = _process_rows(df, ticker, force=force)
+        count = _process_rows(df, ticker, force=force, valid_tickers=valid_tickers)
         saved_count += count
         print(f"  {ticker}: {count}件保存")
 
     return saved_count
 
 
-def fetch_by_date(client, days: int, force: bool = False) -> int:
+def fetch_by_date(client, days: int, force: bool = False,
+                  valid_tickers: set = None) -> int:
     """日付指定で過去N日分の開示を取得する。"""
     saved_count = 0
     today = datetime.now()
@@ -332,14 +248,15 @@ def fetch_by_date(client, days: int, force: bool = False) -> int:
         # 連結優先で重複排除
         df = _select_best_rows(df)
 
-        count = _process_rows(df, force=force)
+        count = _process_rows(df, force=force, valid_tickers=valid_tickers)
         saved_count += count
         print(f"  {count}件保存")
 
     return saved_count
 
 
-def _process_rows(df: pd.DataFrame, label: str = "", force: bool = False) -> int:
+def _process_rows(df: pd.DataFrame, label: str = "", force: bool = False,
+                  valid_tickers: set = None) -> int:
     """DataFrameの各行をfinancials テーブルに保存する。"""
     saved = 0
     for _, row in df.iterrows():
@@ -351,7 +268,7 @@ def _process_rows(df: pd.DataFrame, label: str = "", force: bool = False) -> int
         fiscal_year = mapped.pop('fiscal_year')
         fiscal_quarter = mapped.pop('fiscal_quarter')
 
-        if not ticker_exists(ticker_code):
+        if valid_tickers is not None and ticker_code not in valid_tickers:
             continue
 
         try:
@@ -367,7 +284,7 @@ def _process_rows(df: pd.DataFrame, label: str = "", force: bool = False) -> int
 
 
 def main():
-    _load_env()
+    load_env()
 
     parser = argparse.ArgumentParser(description='J-Quants APIから決算データを取得')
     parser.add_argument('--days', type=int, default=7, help='過去N日分を取得（デフォルト: 7）')
@@ -384,6 +301,8 @@ def main():
         print("  .env に JQUANTS_API_KEY を設定してください")
         sys.exit(1)
 
+    valid_tickers = set(get_all_tickers(active_only=False))
+
     log_id = log_batch_start('fetch_jquants_fins')
     print(f"=== J-Quants 決算データ取得開始 ===")
     print(f"  日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -392,10 +311,12 @@ def main():
         if args.ticker:
             tickers = [t.strip() for t in args.ticker.split(',')]
             print(f"  モード: 銘柄指定 ({', '.join(tickers)})")
-            saved_count = fetch_by_ticker(client, tickers, force=args.force)
+            saved_count = fetch_by_ticker(client, tickers, force=args.force,
+                                          valid_tickers=valid_tickers)
         else:
             print(f"  モード: 日付指定 (過去{args.days}日)")
-            saved_count = fetch_by_date(client, args.days, force=args.force)
+            saved_count = fetch_by_date(client, args.days, force=args.force,
+                                        valid_tickers=valid_tickers)
 
         print(f"\n=== 完了: {saved_count}件保存 ===")
         log_batch_end(log_id, 'success', records_processed=saved_count)

@@ -20,12 +20,12 @@ import pandas as pd
 BASE_DIR = Path(__file__).parent.parent
 
 from fetch_jquants_fins import (
-    _load_env,
     _is_target_row,
     _select_best_rows,
     map_to_financial,
 )
-from db_utils import DB_PATH, ticker_exists
+from db_utils import DB_PATH, get_all_tickers
+from env_utils import load_env
 
 # 比較対象フィールド
 COMPARE_FIELDS = ['revenue', 'operating_income', 'ordinary_income', 'net_income', 'eps']
@@ -78,7 +78,8 @@ def fetch_db_from_db(date: str, tickers: list[str] = None) -> dict:
     return result
 
 
-def fetch_jquants_raw(date: str, tickers: list[str] = None) -> dict:
+def fetch_jquants_raw(date: str, tickers: list[str] = None,
+                      valid_tickers: set = None) -> dict:
     """J-Quants APIから生データを取得してmap_to_financial形式の辞書に変換する。
     DB挿入は行わない。
 
@@ -118,7 +119,7 @@ def fetch_jquants_raw(date: str, tickers: list[str] = None) -> dict:
         tc = mapped['ticker_code']
         if tickers and tc not in tickers:
             continue
-        if not ticker_exists(tc):
+        if valid_tickers is not None and tc not in valid_tickers:
             continue
         key = (tc, mapped['fiscal_year'], mapped['fiscal_quarter'])
         result[key] = {f: mapped.get(f) for f in COMPARE_FIELDS}
@@ -197,7 +198,7 @@ def compare_and_report(tdnet: dict, jquants: dict, date: str):
 
 
 def main():
-    _load_env()
+    load_env()
 
     parser = argparse.ArgumentParser(description='J-Quants vs TDnet 取得結果比較')
     parser.add_argument('--date', required=True, help='比較対象日 (YYYY-MM-DD)')
@@ -225,8 +226,9 @@ def main():
     print(f"  {len(tdnet_data)}件取得")
 
     # 2. JQuantsデータをAPIから取得
+    valid_tickers = set(get_all_tickers(active_only=False))
     print("\n[2/3] JQuantsデータをAPIから取得中...")
-    jquants_data = fetch_jquants_raw(args.date, tickers)
+    jquants_data = fetch_jquants_raw(args.date, tickers, valid_tickers=valid_tickers)
     print(f"  {len(jquants_data)}件取得")
 
     # 3. 比較レポート
