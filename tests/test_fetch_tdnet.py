@@ -25,7 +25,7 @@ from fetch_tdnet import (
     _pick_ix_value,
     _load_or_fetch_announcements,
 )
-from fetch_financials import _wareki_to_seireki
+from xbrl_common import wareki_to_seireki
 from db_utils import get_connection, insert_financial, insert_announcement
 
 
@@ -202,19 +202,19 @@ class TestWarekiToSeireki:
     """和暦→西暦変換のテスト"""
 
     def test_reiwa(self):
-        assert _wareki_to_seireki("令和7年12月期") == "2025年12月期"
+        assert wareki_to_seireki("令和7年12月期") == "2025年12月期"
 
     def test_reiwa_double_digit(self):
-        assert _wareki_to_seireki("令和10年3月期") == "2028年3月期"
+        assert wareki_to_seireki("令和10年3月期") == "2028年3月期"
 
     def test_heisei(self):
-        assert _wareki_to_seireki("平成31年3月期") == "2019年3月期"
+        assert wareki_to_seireki("平成31年3月期") == "2019年3月期"
 
     def test_no_wareki(self):
-        assert _wareki_to_seireki("2025年3月期") == "2025年3月期"
+        assert wareki_to_seireki("2025年3月期") == "2025年3月期"
 
     def test_no_year(self):
-        assert _wareki_to_seireki("決算短信") == "決算短信"
+        assert wareki_to_seireki("決算短信") == "決算短信"
 
 
 class TestDataSourcePriority:

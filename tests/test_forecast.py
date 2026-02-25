@@ -20,7 +20,8 @@ from db_utils import (
     get_connection, insert_management_forecast, get_management_forecast,
     upsert_company,
 )
-from fetch_financials import _is_forecast_context, parse_ixbrl_forecast, _extract_forecast_fiscal_year
+from fetch_financials import _is_forecast_context, parse_ixbrl_forecast
+from xbrl_common import extract_forecast_fiscal_year
 
 
 # ============================================================
@@ -883,7 +884,7 @@ class TestCoalesceNullPreservation:
 
 
 # ============================================================
-# _extract_forecast_fiscal_year() テスト
+# extract_forecast_fiscal_year() テスト
 # ============================================================
 
 import tempfile
@@ -920,7 +921,7 @@ def _write_ixbrl(path: str, contexts: list) -> None:
 
 
 class TestExtractForecastFiscalYear:
-    """_extract_forecast_fiscal_year() のコンテキスト抽出テスト"""
+    """extract_forecast_fiscal_year() のコンテキスト抽出テスト"""
 
     def test_extract_next_year_priority(self):
         """NextYearDuration + ForecastMember → 年度を返す"""
@@ -929,7 +930,7 @@ class TestExtractForecastFiscalYear:
             _write_ixbrl(ixbrl_path, [
                 {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2026'
 
     def test_extract_current_year_fallback(self):
@@ -939,7 +940,7 @@ class TestExtractForecastFiscalYear:
             _write_ixbrl(ixbrl_path, [
                 {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2026'
 
     def test_ignore_non_forecast_current_year(self):
@@ -950,7 +951,7 @@ class TestExtractForecastFiscalYear:
                 # ForecastMemberなし → 対象外
                 {'id': 'CurrentYearDuration_ConsolidatedMember', 'end_date': '2026-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result is None
 
     def test_extract_current_accumulated_q2(self):
@@ -960,7 +961,7 @@ class TestExtractForecastFiscalYear:
             _write_ixbrl(ixbrl_path, [
                 {'id': 'CurrentAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2025-09-30'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2025'
 
     def test_next_year_takes_priority_over_current_year(self):
@@ -973,12 +974,12 @@ class TestExtractForecastFiscalYear:
                 # NextYear（来期）
                 {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2027-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2027'
 
     def test_empty_file_list_returns_none(self):
         """空のパスリストはNoneを返す"""
-        result = _extract_forecast_fiscal_year([])
+        result = extract_forecast_fiscal_year([])
         assert result is None
 
     def test_next_q2_first_but_next_year_wins(self):
@@ -991,7 +992,7 @@ class TestExtractForecastFiscalYear:
                 # FYが後に出現（endDate=2027-03-31 → 年=2027）
                 {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2027-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2027'
 
     def test_current_q2_and_current_year_coexist(self):
@@ -1004,7 +1005,7 @@ class TestExtractForecastFiscalYear:
                 # FY（endDate=2026-03-31 → 年=2026）
                 {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2026'
 
     def test_multi_file_next_wins_over_current(self):
@@ -1022,8 +1023,8 @@ class TestExtractForecastFiscalYear:
             ])
             # file1が先に処理されるが、NextYearを持つfile2の結果は…
             # 注: 現行実装は最初のファイルでマッチしたら返す
-            result1 = _extract_forecast_fiscal_year([Path(path1), Path(path2)])
-            result2 = _extract_forecast_fiscal_year([Path(path2), Path(path1)])
+            result1 = extract_forecast_fiscal_year([Path(path1), Path(path2)])
+            result2 = extract_forecast_fiscal_year([Path(path2), Path(path1)])
         # file1のCurrentYearが先にマッチして返る（ファイル順に処理）
         assert result1 == '2026'
         # file2のNextYearが先にマッチして返る
@@ -1036,5 +1037,5 @@ class TestExtractForecastFiscalYear:
             _write_ixbrl(ixbrl_path, [
                 {'id': 'NextAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2026-09-30'},
             ])
-            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+            result = extract_forecast_fiscal_year([Path(ixbrl_path)])
         assert result == '2026'

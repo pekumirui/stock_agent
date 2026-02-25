@@ -24,8 +24,11 @@ from fetch_financials import (
     _detect_fiscal_year,
     _detect_quarter_from_xbrl_filename,
     _extract_fiscal_end_date_from_xbrl,
+    _wareki_to_seireki,
+    _extract_forecast_fiscal_year,
     extract_edinet_zip,
 )
+from xbrl_common import wareki_to_seireki, extract_forecast_fiscal_year
 from xbrlp import QName
 
 
@@ -683,3 +686,13 @@ class TestExtractFiscalEndDateFromXbrl:
 </html>'''
         p = self._write_ixbrl(tmp_path, ixbrl)
         assert _extract_fiscal_end_date_from_xbrl([p]) == "2025-09-30"
+
+
+class TestBackwardCompatAliases:
+    """xbrl_common.py移設後の後方互換エイリアスが正しく動作することを確認"""
+
+    def test_wareki_alias_is_same_function(self):
+        assert _wareki_to_seireki is wareki_to_seireki
+
+    def test_forecast_fiscal_year_alias_is_same_function(self):
+        assert _extract_forecast_fiscal_year is extract_forecast_fiscal_year

@@ -34,10 +34,9 @@ sys.path.insert(0, str(BASE_DIR / "lib"))
 from fetch_financials import (
     parse_ixbrl_financials,
     parse_ixbrl_forecast,
-    _extract_forecast_fiscal_year,
     extract_edinet_zip,
-    _wareki_to_seireki,
 )
+from xbrl_common import wareki_to_seireki, extract_forecast_fiscal_year
 
 from db_utils import (
     insert_financial,
@@ -101,7 +100,7 @@ def detect_fiscal_period(title: str, announcement_date: str) -> tuple:
     """
     # 全角数字→半角数字に正規化（TDnetは全角数字を使う場合がある）
     normalized_title = unicodedata.normalize('NFKC', title)
-    normalized_title = _wareki_to_seireki(normalized_title)
+    normalized_title = wareki_to_seireki(normalized_title)
 
     # 1. 年度を抽出
     fiscal_year = None
@@ -200,7 +199,7 @@ def detect_fiscal_end_date_from_title(title: str, fiscal_year: str, fiscal_quart
         "2024-12-31"
     """
     normalized = unicodedata.normalize('NFKC', title)
-    normalized = _wareki_to_seireki(normalized)
+    normalized = wareki_to_seireki(normalized)
 
     m = re.search(r'(\d{4})年(\d{1,2})月期', normalized)
     if not m:
@@ -826,7 +825,7 @@ def _process_zip_to_db(
         try:
             forecasts = parse_ixbrl_forecast(extracted_paths)
             if forecasts:
-                forecast_fy = _extract_forecast_fiscal_year(extracted_paths)
+                forecast_fy = extract_forecast_fiscal_year(extracted_paths)
                 if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
                     # Q1-Q3: タイトル判定済み年度を信頼（XBRL抽出が不一致なら補正）
                     if forecast_fy and forecast_fy != fiscal_year:
