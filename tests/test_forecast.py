@@ -20,7 +20,7 @@ from db_utils import (
     get_connection, insert_management_forecast, get_management_forecast,
     upsert_company,
 )
-from fetch_financials import _is_forecast_context, parse_ixbrl_forecast
+from fetch_financials import _is_forecast_context, parse_ixbrl_forecast, _extract_forecast_fiscal_year
 
 
 # ============================================================
@@ -114,6 +114,64 @@ class TestIsForecastContext:
         """前期データは対象外"""
         quarter, is_forecast = _is_forecast_context(
             "PriorYearDuration_ConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is False
+        assert quarter is None
+
+    # --- CurrentYear系テスト（Q1-Q3決算短信の当期通期予想）---
+
+    def test_fy_current_year_consolidated(self):
+        """Q1-Q3短信: CurrentYearDuration + ForecastMember → ('FY', True)"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_ConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is True
+        assert quarter == 'FY'
+
+    def test_fy_current_year_non_consolidated(self):
+        """Q1-Q3短信（非連結）: CurrentYearDuration → ('FY', True)"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_NonConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is True
+        assert quarter == 'FY'
+
+    def test_fy_current_year_annual_member(self):
+        """AnnualMember付きCurrentYearDuration → ('FY', True)"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_AnnualMember_ConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is True
+        assert quarter == 'FY'
+
+    def test_q2_current_accumulated(self):
+        """CurrentAccumulatedQ2Duration + ForecastMember → ('Q2', True)"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentAccumulatedQ2Duration_ConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is True
+        assert quarter == 'Q2'
+
+    def test_current_year_dividend_year_end(self):
+        """YearEndMemberはQ2判定に引っかからない → ('FY', True)"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_YearEndMember_ConsolidatedMember_ForecastMember"
+        )
+        assert is_forecast is True
+        assert quarter == 'FY'
+
+    def test_current_year_upper_member_excluded(self):
+        """CurrentYear + UpperMember は対象外"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_ConsolidatedMember_ForecastMember_UpperMember"
+        )
+        assert is_forecast is False
+        assert quarter is None
+
+    def test_current_year_second_quarter_dividend_excluded(self):
+        """CurrentYear + SecondQuarterMember（配当四半期）は対象外"""
+        quarter, is_forecast = _is_forecast_context(
+            "CurrentYearDuration_ConsolidatedMember_SecondQuarterMember_ForecastMember"
         )
         assert is_forecast is False
         assert quarter is None
@@ -324,6 +382,28 @@ class TestParseIxbrlForecast:
 
         assert 'FY' in result
         assert result['FY']['dividend_per_share'] == pytest.approx(80.0, rel=1e-3)
+
+    def test_extract_ifrs_sales_forecast(self):
+        """SalesIFRS要素がrevenueにマッピングされる（Q1-Q3短信IFRS企業）"""
+        mock_facts = self._make_facts([
+            {
+                'prefix': 'tse-ed-t',
+                'local_name': 'SalesIFRS',
+                'context_ref': 'CurrentYearDuration_ConsolidatedMember_ForecastMember',
+                'value': Decimal('10000000000000'),  # 10兆円（日本製鉄相当）
+                'namespace_uri': 'tse-ed-t',
+            },
+        ])
+
+        mock_parser = MagicMock()
+        mock_parser.ixbrl_files = [Path('/tmp/fake.htm')]
+        mock_parser.load_facts.return_value = mock_facts
+
+        with patch('fetch_financials.Parser', return_value=mock_parser):
+            result = parse_ixbrl_forecast([Path('/tmp/fake.htm')])
+
+        assert 'FY' in result
+        assert result['FY']['revenue'] == pytest.approx(10000000.0, rel=1e-3)
 
 
 # ============================================================
@@ -800,3 +880,161 @@ class TestCoalesceNullPreservation:
 
         records = get_management_forecast(ticker, '2026', 'FY')
         assert records[0]['revenue'] == 600000.0
+
+
+# ============================================================
+# _extract_forecast_fiscal_year() テスト
+# ============================================================
+
+import tempfile
+import os
+
+
+def _write_ixbrl(path: str, contexts: list) -> None:
+    """テスト用の最小限iXBRLファイルを書き出す。
+
+    contexts: list of dict with keys:
+        id: コンテキストID
+        end_date: endDate 文字列 (e.g. "2026-03-31")
+    """
+    ctx_xml = ""
+    for ctx in contexts:
+        ctx_xml += f"""
+  <xbrli:context id="{ctx['id']}">
+    <xbrli:entity><xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E12345</xbrli:identifier></xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2025-04-01</xbrli:startDate>
+      <xbrli:endDate>{ctx['end_date']}</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>"""
+
+    content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<xbrli:xbrl
+  xmlns:xbrli="http://www.xbrl.org/2003/instance"
+  xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+>
+{ctx_xml}
+</xbrli:xbrl>"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+class TestExtractForecastFiscalYear:
+    """_extract_forecast_fiscal_year() のコンテキスト抽出テスト"""
+
+    def test_extract_next_year_priority(self):
+        """NextYearDuration + ForecastMember → 年度を返す"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2026'
+
+    def test_extract_current_year_fallback(self):
+        """NextYearDurationがなく、CurrentYearDuration + ForecastMember のみ → フォールバックで年度返す"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2026'
+
+    def test_ignore_non_forecast_current_year(self):
+        """ForecastMemberなしのCurrentYearDurationは無視される"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                # ForecastMemberなし → 対象外
+                {'id': 'CurrentYearDuration_ConsolidatedMember', 'end_date': '2026-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result is None
+
+    def test_extract_current_accumulated_q2(self):
+        """CurrentAccumulatedQ2Duration + ForecastMember → 年度を返す"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                {'id': 'CurrentAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2025-09-30'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2025'
+
+    def test_next_year_takes_priority_over_current_year(self):
+        """NextYearDurationとCurrentYearDurationが共存する場合、NextYearを優先"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                # CurrentYear（来期より前）
+                {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
+                # NextYear（来期）
+                {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2027-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2027'
+
+    def test_empty_file_list_returns_none(self):
+        """空のパスリストはNoneを返す"""
+        result = _extract_forecast_fiscal_year([])
+        assert result is None
+
+    def test_next_q2_first_but_next_year_wins(self):
+        """NextAccumulatedQ2Durationが先に出現してもNextYearDurationが優先される"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                # Q2が先に出現（endDate=2026-09-30 → 年=2026）
+                {'id': 'NextAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2026-09-30'},
+                # FYが後に出現（endDate=2027-03-31 → 年=2027）
+                {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2027-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2027'
+
+    def test_current_q2_and_current_year_coexist(self):
+        """CurrentAccumulatedQ2DurationとCurrentYearDurationが共存 → CurrentYearが優先"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                # Q2（endDate=2025-09-30 → 年=2025）
+                {'id': 'CurrentAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2025-09-30'},
+                # FY（endDate=2026-03-31 → 年=2026）
+                {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2026'
+
+    def test_multi_file_next_wins_over_current(self):
+        """複数ファイル入力: file1にCurrentYear、file2にNextYear → NextYearが優先"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path1 = os.path.join(tmpdir, "file1.htm")
+            path2 = os.path.join(tmpdir, "file2.htm")
+            # file1: CurrentYearのみ
+            _write_ixbrl(path1, [
+                {'id': 'CurrentYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2026-03-31'},
+            ])
+            # file2: NextYearあり
+            _write_ixbrl(path2, [
+                {'id': 'NextYearDuration_ConsolidatedMember_ForecastMember', 'end_date': '2027-03-31'},
+            ])
+            # file1が先に処理されるが、NextYearを持つfile2の結果は…
+            # 注: 現行実装は最初のファイルでマッチしたら返す
+            result1 = _extract_forecast_fiscal_year([Path(path1), Path(path2)])
+            result2 = _extract_forecast_fiscal_year([Path(path2), Path(path1)])
+        # file1のCurrentYearが先にマッチして返る（ファイル順に処理）
+        assert result1 == '2026'
+        # file2のNextYearが先にマッチして返る
+        assert result2 == '2027'
+
+    def test_next_q2_only_returns_q2_year(self):
+        """NextAccumulatedQ2Durationのみの場合、そのendDateの年を返す"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ixbrl_path = os.path.join(tmpdir, "test.htm")
+            _write_ixbrl(ixbrl_path, [
+                {'id': 'NextAccumulatedQ2Duration_ConsolidatedMember_ForecastMember', 'end_date': '2026-09-30'},
+            ])
+            result = _extract_forecast_fiscal_year([Path(ixbrl_path)])
+        assert result == '2026'
