@@ -20,29 +20,13 @@ from db_utils import (
     log_batch_end,
     is_valid_ticker_code
 )
+from env_utils import load_env
 
 
 # EDINET APIエンドポイント
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
 BASE_DIR = Path(__file__).parent.parent
-
-
-def _load_env():
-    """プロジェクトルートの.envファイルから環境変数を読み込む"""
-    env_path = BASE_DIR / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, _, value = line.partition('=')
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                os.environ.setdefault(key, value)
 
 
 def fetch_edinet_codelist(api_key: Optional[str] = None, days: int = 90) -> Optional[Dict[str, Any]]:
@@ -265,7 +249,7 @@ def update_edinet_codes(data: Dict[str, Any]) -> tuple[int, int]:
 
 
 def main():
-    _load_env()
+    load_env()
 
     parser = argparse.ArgumentParser(description='EDINETコードを更新')
     parser.add_argument('--api-key', help='EDINET APIキー（未指定時は環境変数 EDINET_API_KEY）')

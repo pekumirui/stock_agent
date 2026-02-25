@@ -43,6 +43,7 @@ from db_utils import (
     get_edinet_ticker_map, get_processed_doc_ids
 )
 from path_utils import find_edinet_temp_dir
+from env_utils import load_env
 
 
 # EDINET API エンドポイント
@@ -1165,25 +1166,8 @@ def fetch_financials(days: int = 7, tickers: list = None, api_key: str = None,
         raise
 
 
-def _load_env():
-    """プロジェクトルートの.envファイルから環境変数を読み込む"""
-    env_path = BASE_DIR / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, _, value = line.partition('=')
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                os.environ.setdefault(key, value)
-
-
 def main():
-    _load_env()
+    load_env()
 
     parser = argparse.ArgumentParser(description='EDINETから決算データを取得')
     parser.add_argument('--days', type=int, default=7, help='過去N日分を取得')
