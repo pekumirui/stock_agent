@@ -31,7 +31,7 @@ SOURCE_PRIORITY = {'EDINET': 3, 'TDnet': 2, 'JQuants': 2, 'yfinance': 1}
 ## fetch_financials.py パターン
 
 - 新関数の追加位置: `_parse_xbrl_legacy()` の前
-- 予想用: `XBRL_FORECAST_MAPPING`, `_is_forecast_context()`, `parse_ixbrl_forecast()`, `_extract_forecast_fiscal_year()`
+- 予想用: `XBRL_FORECAST_MAPPING`, `_is_forecast_context()`, `parse_ixbrl_forecast()`, `extract_forecast_fiscal_year()`（xbrl_common.py）
 - `_is_forecast_context()` は `NextYear`/`NextAccumulatedQ2` を含むコンテキストのみ対象
 - `ForecastMember` 判定に加えて `NextYear` の有無も確認（前期予想を除外）
 

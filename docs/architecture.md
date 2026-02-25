@@ -131,7 +131,7 @@ stock_agent/
 TDnet決算短信 ZIP
   → fetch_tdnet.py (_process_zip_to_db)
     → parse_ixbrl_forecast()          # iXBRLから予想コンテキスト（NextYearDuration等）を抽出
-    → _extract_forecast_fiscal_year() # NextYearDurationのendDateから予想対象年度を特定
+    → extract_forecast_fiscal_year()  # NextYearDurationのendDateから予想対象年度を特定（xbrl_common.py）
     → insert_management_forecast()    # management_forecastsテーブルに保存
 ```
 

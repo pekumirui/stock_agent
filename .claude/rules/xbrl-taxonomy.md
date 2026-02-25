@@ -259,7 +259,7 @@ TDnet決算短信Summary iXBRLの業績予想データは `NextYearDuration` / `
 
 ### fiscal_year判定（TDnet XBRL）
 
-`_extract_forecast_fiscal_year()` が `NextYearDuration` を含むコンテキストの `endDate` をXMLから直接パースし、
+`extract_forecast_fiscal_year()`（`xbrl_common.py`）が `NextYearDuration` を含むコンテキストの `endDate` をXMLから直接パースし、
 その年部分（YYYY）を `fiscal_year` として使用する。
 
 ## マッピング追加の手順
