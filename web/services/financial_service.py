@@ -138,7 +138,9 @@ def get_viewer_data(
 
             # QoQ計算（v_financials_standalone_quarter 使用 - Agent A作成予定）
             # ビューが存在しない場合はスキップ
-            if fy and fq and fq != "FY":
+            if fy and fq:
+                # FYはstandalone_quarterビューでQ4として扱われるためQ4に正規化
+                fq_for_qoq = "Q4" if fq == "FY" else fq
                 # 前四半期の単独四半期と比較
                 prev_q_map = {
                     "Q2": ("Q1", fy),
@@ -146,21 +148,23 @@ def get_viewer_data(
                     "Q4": ("Q3", fy),
                     "Q1": ("Q4", str(int(fy) - 1)),
                 }
-                prev_info = prev_q_map.get(fq)
+                prev_info = prev_q_map.get(fq_for_qoq)
                 if prev_info:
                     prev_fq, prev_fy_q = prev_info
 
                     cur_cursor = conn.execute(
                         """
-                        SELECT revenue_standalone, gross_profit_standalone,
-                               operating_income_standalone, ordinary_income_standalone,
-                               net_income_standalone, has_prev_quarter
-                        FROM v_financials_standalone_quarter
-                        WHERE ticker_code = ? AND fiscal_year = ? AND fiscal_quarter = ?
-                              AND has_prev_quarter = 1
-                        ORDER BY announcement_date DESC LIMIT 1
+                        SELECT v.revenue_standalone, v.gross_profit_standalone,
+                               v.operating_income_standalone, v.ordinary_income_standalone,
+                               v.net_income_standalone, v.has_prev_quarter
+                        FROM v_financials_standalone_quarter v
+                        JOIN financials f ON f.id = v.id
+                        WHERE v.ticker_code = ? AND v.fiscal_year = ? AND v.fiscal_quarter = ?
+                              AND f.fiscal_quarter = ?
+                              AND v.has_prev_quarter = 1
+                        ORDER BY f.fiscal_end_date DESC, v.announcement_date DESC LIMIT 1
                     """,
-                        [ticker, fy, fq],
+                        [ticker, fy, fq_for_qoq, fq],
                     )
                     cur_sq = cur_cursor.fetchone()
 

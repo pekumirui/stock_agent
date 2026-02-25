@@ -118,15 +118,6 @@ python scripts/migrate_tdnet_cache_layout.py --execute
 ## データ品質管理
 
 ```bash
-# EDINETコード欠損分析
-python3 scripts/analyze_missing_edinet.py --include-stats
-
-# スキーマ検証
-python3 scripts/validate_schema.py
-
-# スキーマ検証（特定銘柄）
-python3 scripts/validate_schema.py --ticker 7203
-
 #デバッグ用
 -uを付けることでリアルタイムに出力される
 python3 -u scripts/update_edinet_codes.py --days 720 --api-key <APIキー> > logs/update_edinet_codes.log 2>&1

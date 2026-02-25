@@ -23,8 +23,6 @@ stock_agent/
 │   ├── fetch_tdnet.py      # 決算短信取得（TDnet）
 │   ├── fetch_jquants_fins.py  # 決算取得（J-Quants API）
 │   ├── update_edinet_codes.py  # EDINETコード一括更新
-│   ├── analyze_missing_edinet.py  # EDINETコード欠損分析
-│   ├── validate_schema.py  # スキーマ検証ツール
 │   ├── migrate.py          # DBマイグレーション管理
 │   ├── run_price_batch.py  # 株価取得バッチ
 │   └── run_disclosure_batch.py  # 開示データ取得バッチ（EDINET+TDnet）
@@ -313,36 +311,6 @@ python3 scripts/migrate.py rollback
 - 初回のみ `migrate.py mark-baseline` でベースラインマークを適用
 - その後は `migrate.py apply` で未適用マイグレーションを自動検出・適用
 
-### EDINETコード欠損分析 (analyze_missing_edinet.py)
-
-EDINETコード未登録銘柄を分析し、カテゴリ分類・優先度判定を行います。
-
-```bash
-# 基本実行（CSV出力）
-python3 scripts/analyze_missing_edinet.py
-
-# 統計情報付き
-python3 scripts/analyze_missing_edinet.py --include-stats
-
-# サマリーのみ表示
-python3 scripts/analyze_missing_edinet.py --summary-only
-```
-
-### スキーマ検証 (validate_schema.py)
-
-yfinanceから株価データを取得し、スキーマ適合性を検証します。
-
-```bash
-# 全銘柄を検証
-python3 scripts/validate_schema.py
-
-# 特定銘柄のみ
-python3 scripts/validate_schema.py --ticker 7203
-
-# ドライラン（DB挿入なし）
-python3 scripts/validate_schema.py --dry-run
-```
-
 ## データベーススキーマ
 
 ### テーブル一覧
@@ -419,7 +387,6 @@ python3 -m pytest tests/test_db_utils.py -v
 | test_fetch_tdnet.py | TDnet取得 |
 | test_fetch_jquants_fins.py | J-Quants決算取得 |
 | test_update_edinet_codes.py | EDINETコード更新 |
-| test_analyze_missing_edinet.py | EDINETコード欠損分析 |
 | test_financial_views.py | YoY/QoQビュー |
 | test_migrations.py | マイグレーション |
 
