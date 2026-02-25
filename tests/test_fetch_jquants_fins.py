@@ -9,16 +9,18 @@ import pytest
 # scriptsディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+from jquants_common import (
+    detect_quarter as _detect_quarter,
+    to_million as _to_million,
+    to_float as _to_float,
+    format_date as _format_date,
+    fiscal_year_from_fy_end as _fiscal_year_from_fy_end,
+)
 from fetch_jquants_fins import (
-    _detect_quarter,
     _is_target_row,
     _is_consolidated,
     _select_best_rows,
-    _to_million,
-    _to_float,
-    _format_date,
     _format_time,
-    _fiscal_year_from_fy_end,
     map_to_financial,
 )
 
