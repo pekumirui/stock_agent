@@ -45,6 +45,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ env.VM_USER }}@${{ env.VM_HOST }} << 'EOF'
+          set -euo pipefail
           cd ${{ env.DEPLOY_PATH }}
 
           # Python仮想環境がなければ作成
@@ -63,6 +64,15 @@ jobs:
           # マイグレーション適用（新規・既存環境どちらも対応）
           python scripts/migrate.py apply
           echo "Database migrations applied"
+
+          # Webサーバー（systemd）のセットアップ・再起動
+          sudo -n cp infra/stock-agent-web.service /etc/systemd/system/
+          sudo -n systemctl daemon-reload
+          sudo -n systemctl enable stock-agent-web
+          sudo -n systemctl restart stock-agent-web
+          sleep 2
+          sudo -n systemctl is-active --quiet stock-agent-web
+          echo "Web server restarted"
 
           echo "Deployment completed successfully!"
           EOF
