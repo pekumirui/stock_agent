@@ -1,0 +1,20 @@
+[Unit]
+Description=Stock Agent Web (FastAPI + uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+WorkingDirectory=/home/azureuser/stock_agent
+EnvironmentFile=-/home/azureuser/stock_agent/.env
+Environment=PATH=/home/azureuser/stock_agent/venv/bin:/usr/bin:/bin
+ExecStart=/home/azureuser/stock_agent/venv/bin/uvicorn web.app:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
