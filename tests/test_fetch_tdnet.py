@@ -25,7 +25,7 @@ from fetch_tdnet import (
     _pick_ix_value,
     _load_or_fetch_announcements,
 )
-from xbrl_common import wareki_to_seireki
+from xbrl_common import wareki_to_seireki, resolve_fiscal_end_date
 from db_utils import get_connection, insert_financial, insert_announcement
 
 
@@ -1114,3 +1114,165 @@ class TestFiscalEndDateCorrectionWithFiscalYearEnd:
 
         assert detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter) is None
         assert compute_fiscal_end_date(fiscal_year_end, fiscal_quarter) == "2025-06-30"
+
+
+class TestResolveFiscalEndDate:
+    """resolve_fiscal_end_date() の全分岐テスト"""
+
+    def test_q3_xbrl_correct_no_correction(self):
+        """Q3: XBRL値が正しい場合は補正なし"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2025-12-31",
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+            title_fiscal_end="2025-12-31",
+        )
+        assert result == "2025-12-31"
+        assert fy == "2026"
+        assert logs == []
+
+    def test_q3_xbrl_wrong_title_corrects(self):
+        """Q3: XBRL値が不正、タイトル推定で補正"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2026-03-31",
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+            title_fiscal_end="2025-12-31",
+        )
+        assert result == "2025-12-31"
+        assert fy == "2026"
+        assert len(logs) == 1
+        assert "[補正]" in logs[0]
+        assert "タイトル推定" in logs[0]
+
+    def test_q3_xbrl_wrong_computed_corrects(self):
+        """Q3: XBRL値が不正、タイトルなしでFiscalYearEnd計算で補正"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2026-03-31",
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+            computed_fiscal_end="2025-12-31",
+        )
+        assert result == "2025-12-31"
+        assert len(logs) == 1
+        assert "[補正]" in logs[0]
+        assert "FiscalYearEnd計算" in logs[0]
+
+    def test_q3_xbrl_absent_title_fills(self):
+        """Q3: XBRLなし、タイトル推定で補完"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=None,
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+            title_fiscal_end="2025-12-31",
+        )
+        assert result == "2025-12-31"
+        assert len(logs) == 1
+        assert "[補完]" in logs[0]
+        assert "タイトル推定" in logs[0]
+
+    def test_q3_xbrl_absent_computed_fills(self):
+        """Q3: XBRLなし、タイトルもなし、FiscalYearEnd計算で補完"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=None,
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+            computed_fiscal_end="2025-12-31",
+        )
+        assert result == "2025-12-31"
+        assert len(logs) == 1
+        assert "[補完]" in logs[0]
+        assert "FiscalYearEnd計算" in logs[0]
+
+    def test_q3_all_none(self):
+        """Q3: 全てNoneの場合は解決不能"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=None,
+            fiscal_year="2026",
+            fiscal_quarter="Q3",
+        )
+        assert result is None
+        assert fy == "2026"
+        assert logs == []
+
+    def test_fy_xbrl_year_matches(self):
+        """FY: XBRL年度が一致する場合は補正なし"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2026-03-31",
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+        )
+        assert result == "2026-03-31"
+        assert fy == "2026"
+        assert logs == []
+
+    def test_fy_xbrl_year_mismatch_corrects_fiscal_year(self):
+        """FY: XBRL年度とfiscal_yearが不一致の場合、fiscal_yearを補正"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2025-12-31",
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+        )
+        assert result == "2025-12-31"
+        assert fy == "2025"
+        assert len(logs) == 1
+        assert "[補正]" in logs[0]
+
+    def test_fy_xbrl_absent_title_fills(self):
+        """FY: XBRLなし、タイトル推定で補完"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=None,
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+            title_fiscal_end="2026-03-31",
+        )
+        assert result == "2026-03-31"
+        assert len(logs) == 1
+        assert "[補完]" in logs[0]
+
+    def test_fy_xbrl_absent_no_title(self):
+        """FY: XBRLなし、タイトルもなし→解決不能"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=None,
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+        )
+        assert result is None
+        assert fy == "2026"
+        assert logs == []
+
+    def test_q4_same_as_fy(self):
+        """Q4: FYと同じパスを通る"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="2025-12-31",
+            fiscal_year="2026",
+            fiscal_quarter="Q4",
+        )
+        assert result == "2025-12-31"
+        assert fy == "2025"
+        assert len(logs) == 1
+        assert "[補正]" in logs[0]
+
+    def test_fy_invalid_xbrl_format_skips_correction(self):
+        """FY: xbrl_fiscal_endが不正形式の場合は年度補正をスキップ"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="N/A",
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+        )
+        assert result == "N/A"
+        assert fy == "2026"
+        assert logs == []
+
+    def test_fy_invalid_xbrl_with_title_fallback(self):
+        """FY: xbrl_fiscal_endが不正形式でもtitle_fiscal_endがあれば補完"""
+        result, fy, logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end="N/A",
+            fiscal_year="2026",
+            fiscal_quarter="FY",
+            title_fiscal_end="2026-03-31",
+        )
+        assert result == "2026-03-31"
+        assert fy == "2026"
+        assert len(logs) == 1
+        assert "[補完]" in logs[0]

@@ -28,6 +28,63 @@ def wareki_to_seireki(text: str) -> str:
     return text
 
 
+def resolve_fiscal_end_date(
+    *,
+    xbrl_fiscal_end: Optional[str],
+    fiscal_year: str,
+    fiscal_quarter: str,
+    title_fiscal_end: Optional[str] = None,
+    computed_fiscal_end: Optional[str] = None,
+) -> tuple[Optional[str], str, list[str]]:
+    """fiscal_end_dateの補正・フォールバック解決
+
+    XBRLから取得したfiscal_end_dateを、タイトル推定やFiscalYearEnd計算で
+    検証・補正する。Q1/Q2/Q3ではタイトル推定を最優先し、FY/Q4ではXBRL値から
+    fiscal_yearを補正する。
+
+    Args:
+        xbrl_fiscal_end: XBRLパース結果のfiscal_end_date (None可)
+        fiscal_year: 決算年度 (例: "2026")
+        fiscal_quarter: 四半期 (Q1/Q2/Q3/Q4/FY)
+        title_fiscal_end: タイトル推定のfiscal_end_date (None可)
+        computed_fiscal_end: FiscalYearEnd計算のfiscal_end_date (None可)
+
+    Returns:
+        (resolved_fiscal_end_date, resolved_fiscal_year, log_messages)
+        - resolved_fiscal_end_date: 補正後のfiscal_end_date (Noneの場合は解決不能)
+        - resolved_fiscal_year: 補正後のfiscal_year
+        - log_messages: 補正/補完ログメッセージのリスト
+    """
+    logs = []
+
+    if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
+        corrected = title_fiscal_end or computed_fiscal_end
+
+        if xbrl_fiscal_end and corrected and xbrl_fiscal_end != corrected:
+            source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
+            logs.append(f"[補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → {source_label}={corrected}")
+            xbrl_fiscal_end = corrected
+        elif not xbrl_fiscal_end and corrected:
+            source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
+            xbrl_fiscal_end = corrected
+            logs.append(f"[補完] fiscal_end_date: {source_label}={xbrl_fiscal_end}")
+
+    elif fiscal_quarter in ('FY', 'Q4'):
+        is_valid_format = bool(
+            xbrl_fiscal_end and re.fullmatch(r'\d{4}-\d{2}-\d{2}', xbrl_fiscal_end)
+        )
+        if is_valid_format:
+            xbrl_fiscal_year = xbrl_fiscal_end[:4]
+            if xbrl_fiscal_year != fiscal_year:
+                logs.append(f"[補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
+                fiscal_year = xbrl_fiscal_year
+        elif title_fiscal_end:
+            xbrl_fiscal_end = title_fiscal_end
+            logs.append(f"[補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+
+    return xbrl_fiscal_end, fiscal_year, logs
+
+
 def extract_forecast_fiscal_year(ixbrl_paths: list) -> Optional[str]:
     """iXBRLのContext要素から予想対象の年度を抽出する。
 
