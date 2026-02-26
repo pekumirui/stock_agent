@@ -36,7 +36,7 @@ from fetch_financials import (
     parse_ixbrl_forecast,
     extract_edinet_zip,
 )
-from xbrl_common import wareki_to_seireki, extract_forecast_fiscal_year
+from xbrl_common import wareki_to_seireki, extract_forecast_fiscal_year, resolve_fiscal_end_date
 
 from db_utils import (
     insert_financial,
@@ -748,39 +748,28 @@ def _process_zip_to_db(
 
         xbrl_fiscal_end = financials.pop('fiscal_end_date', None)
 
-        # fiscal_end_date検証・補正
+        # fiscal_end_date検証・補正の入力値を準備
+        # 旧実装と同じ評価順序を維持: FY/Q4でXBRLありの場合はタイトル解析を呼ばない
+        title_fiscal_end = None
+        computed_fiscal_end = None
         if fiscal_quarter in ('Q1', 'Q2', 'Q3'):
-            # フォールバック1: タイトルの「YYYY年M月期」パターンから計算
-            title_fiscal_end = None
             if title:
                 title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
-
-            # フォールバック2: FiscalYearEnd（FY末日）+ QuarterlyPeriodから計算
-            computed_fiscal_end = None
             if fiscal_year_end:
                 computed_fiscal_end = compute_fiscal_end_date(fiscal_year_end, fiscal_quarter)
-
-            # 補正候補: タイトル推定 > FiscalYearEnd計算 の優先度
-            corrected = title_fiscal_end or computed_fiscal_end
-
-            if xbrl_fiscal_end and corrected and xbrl_fiscal_end != corrected:
-                source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
-                print(f"    [補正] fiscal_end_date: XBRL={xbrl_fiscal_end} → {source_label}={corrected}")
-                xbrl_fiscal_end = corrected
-            elif not xbrl_fiscal_end and corrected:
-                source_label = "タイトル推定" if title_fiscal_end else "FiscalYearEnd計算"
-                xbrl_fiscal_end = corrected
-                print(f"    [補完] fiscal_end_date: {source_label}={xbrl_fiscal_end}")
         elif fiscal_quarter in ('FY', 'Q4'):
-            if xbrl_fiscal_end:
-                xbrl_fiscal_year = xbrl_fiscal_end[:4]
-                if xbrl_fiscal_year != fiscal_year:
-                    print(f"    [補正] fiscal_year: タイトル={fiscal_year} → XBRL={xbrl_fiscal_year}")
-                    fiscal_year = xbrl_fiscal_year
-            elif title:
-                xbrl_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
-                if xbrl_fiscal_end:
-                    print(f"    [補完] fiscal_end_date: タイトルから推定={xbrl_fiscal_end}")
+            if not xbrl_fiscal_end and title:
+                title_fiscal_end = detect_fiscal_end_date_from_title(title, fiscal_year, fiscal_quarter)
+
+        xbrl_fiscal_end, fiscal_year, correction_logs = resolve_fiscal_end_date(
+            xbrl_fiscal_end=xbrl_fiscal_end,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+            title_fiscal_end=title_fiscal_end,
+            computed_fiscal_end=computed_fiscal_end,
+        )
+        for msg in correction_logs:
+            print(f"    {msg}")
 
         # キャッシュ経路でtitleが無い場合: XBRLのfiscal_end_dateをそのまま使用
         if not xbrl_fiscal_end:
